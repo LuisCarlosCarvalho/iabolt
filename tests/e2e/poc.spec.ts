@@ -1,10 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 
-/** Percurso real no browser: selecionar no canvas, subir ao pai, duplicar, guardar, F5, confirmar. */
+/** Prova técnica da Fase 0 (rota de diagnóstico): selecionar no canvas, subir ao pai, duplicar, guardar, F5, confirmar. */
 const frame = (page: Page) => page.frameLocator('.gjs-frame');
 
 test('selecionar → pai → duplicar → guardar → F5 mantém identidade e conteúdo', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/prova-tecnica');
   await expect(page.getByTestId('save-state')).toHaveText('Guardado');
   await expect(page.getByTestId('revision')).toHaveText('rev 0');
 
@@ -35,7 +35,7 @@ test('selecionar → pai → duplicar → guardar → F5 mantém identidade e co
 });
 
 test('eliminar e desfazer no browser', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/prova-tecnica');
   await expect(page.getByTestId('save-state')).toHaveText('Guardado');
   await frame(page).locator('#hero-text').click();
   await page.getByTestId('delete').click();

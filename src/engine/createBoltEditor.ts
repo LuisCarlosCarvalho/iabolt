@@ -1,10 +1,15 @@
 import grapesjs, { type Editor, type EditorConfig } from 'grapesjs';
 import { boltTypesPlugin } from './boltTypes';
+import { blocksPlugin } from './blocks';
 import { identityPlugin, sweepAllPages } from './identity';
+import { deviceManagerConfig } from './styles';
 import type { GrapesProjectData } from '../contract/boltDocument';
 
+/** Versão do motor em execução, gravada no envelope BoltDocument. */
+export const ENGINE_VERSION: string = grapesjs.version;
+
 export interface CreateBoltEditorOptions {
-  /** Elemento onde montar o editor; omitir = headless (testes). */
+  /** Elemento onde montar o editor; omitir = headless (testes, pré-visualizações). */
   container?: HTMLElement;
   projectData?: GrapesProjectData;
   extra?: Partial<EditorConfig>;
@@ -20,7 +25,10 @@ export function createBoltEditor(opts: CreateBoltEditorOptions = {}): Editor {
     storageManager: false,
     // Sem estilos inline: estilos por regra, para a responsividade por breakpoint.
     avoidInlineStyle: true,
-    plugins: [boltTypesPlugin, identityPlugin],
+    // Estilos de um elemento vão para a regra `#id` dele, não para classes partilhadas.
+    selectorManager: { componentFirst: true },
+    deviceManager: deviceManagerConfig(),
+    plugins: [boltTypesPlugin, identityPlugin, blocksPlugin],
     ...(opts.projectData ? { projectData: opts.projectData } : {}),
     ...opts.extra,
   });
@@ -31,4 +39,14 @@ export function createBoltEditor(opts: CreateBoltEditorOptions = {}): Editor {
 
 export function getProjectData(editor: Editor): GrapesProjectData {
   return editor.getProjectData() as GrapesProjectData;
+}
+
+/** HTML e CSS exportados de um projeto (pré-visualizações; nunca a forma persistida). */
+export function renderProjectHtml(projectData: GrapesProjectData): { html: string; css: string } {
+  const editor = createBoltEditor({ projectData });
+  try {
+    return { html: editor.getHtml(), css: editor.getCss() ?? '' };
+  } finally {
+    editor.destroy();
+  }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Component, Editor } from 'grapesjs';
 import 'grapesjs/dist/css/grapes.min.css';
+import './poc.css';
 import { createBoltEditor, getProjectData } from '../engine/createBoltEditor';
 import { POC_FIXTURE } from '../engine/pocFixture';
 import { duplicate, remove, selectParent } from '../engine/operations';

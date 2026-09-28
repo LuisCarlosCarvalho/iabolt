@@ -1,13 +1,13 @@
 # Arquitetura e decisões (Fase 0)
 
-Estado: **proposta para aprovação** · 28/09/2026
+Estado: **em vigor na entrega 1 (primeira versão utilizável)** · 28/09/2026
 
 Cada decisão indica a evidência consultada. O que não foi verificado aparece como tal.
 
 ## D1 · Motor de edição: GrapesJS Core (recomendação firme)
 
 - Versão alvo: **grapesjs 0.23.6**. É a última tag estável no GitHub e foi publicada a 25/08/2026 (commit `2bdeda8`). O `packages/core/package.json` dessa tag declara a licença **BSD-3-Clause**.
-  Verificado com `git ls-remote` e com o código-fonte da tag. **Por confirmar no registo npm**, que está bloqueado nesta sessão (ver «Bloqueios»).
+  Verificado com `git ls-remote` e com o código-fonte da tag. **Confirmado no registo npm** a 28/09/2026 (`npm view grapesjs@0.23.6 version license` → `0.23.6`, `BSD-3-Clause`). Instalado e fixado no lockfile.
 - As APIs em que a arquitetura assenta foram conferidas no código-fonte da tag v0.23.6:
   - `editor.getProjectData()` / `editor.loadProjectData()` (`editor/index.ts`)
   - `Component.getId()` usa `attributes.id`, depois `ccid`. `Component.createId()` resolve colisões com sufixo incremental e regista `idMap` (`dom_components/model/Component.ts`).
@@ -39,21 +39,28 @@ Cada decisão indica a evidência consultada. O que não foi verificado aparece 
 
 ## D3 · Stack da aplicação
 
-React + TypeScript estrito + Vite; Tailwind + componentes acessíveis; Vitest (jsdom) + Playwright; Supabase (projeto novo, na Fase 1); API de servidor para IA e para operações privilegiadas; Vercel após autorização.
+React + TypeScript estrito + Vite; Vitest (jsdom) + Playwright; Supabase (Postgres, Auth e Storage) com as migrações em `supabase/migrations`; API de servidor para IA e operações privilegiadas (fases seguintes); Vercel após autorização.
 
-As versões candidatas foram lidas das tags do GitHub a 28/09/2026. **Não estão fixadas**: serão confirmadas com `npm view` e ficam gravadas no lockfile quando o registo estiver acessível.
+**Desvio registado:** a interface usa CSS próprio com tokens (`src/app/app.css`) em vez de Tailwind. Numa interface pequena, evita mais uma camada de build. Pode ser revisto sem tocar no motor nem na persistência.
 
-| Pacote | Última tag GitHub | Nota |
+As versões foram confirmadas com `npm view` a 28/09/2026 e **estão fixadas** com versão exata no `package.json` e no `package-lock.json`. A lista completa está em `docs/05`.
+
+| Pacote | Versão fixada | Nota |
 | --- | --- | --- |
-| vite | v8.3.1 | |
-| vitest | v5.0.2 | |
-| react | v19.3.0 | |
-| zod | v4.6.5 | validação do contrato |
-| @playwright/test | v1.63.0 | no ambiente cloud há Chromium do Playwright 1.56 |
-| typescript | v7.0.2 | **risco:** TS 7 é o compilador nativo novo; confirmar compatibilidade com typescript-eslint (v8.70.1) antes de fixar. Alternativa: a última 5.x/6.x suportada |
-| eslint | v10.11.0 | |
+| vite | 8.3.1 | |
+| vitest | 5.0.2 | |
+| react | 19.3.0 | |
+| zod | 4.6.5 | validação do contrato |
+| @playwright/test | 1.63.0 | Chromium 153.0.8010.12 (`npx playwright install chromium`) |
+| typescript | **6.0.3** | **não** o 7.0.2: o typescript-eslint 8.70.1 declara `typescript >=4.8.4 <6.1.0`. 6.0.3 é a última versão dentro desse intervalo. Rever quando o typescript-eslint suportar o TS 7 |
+| typescript-eslint | 8.70.1 | |
+| eslint | 10.11.0 | |
+| @supabase/supabase-js | 2.117.2 | cliente do servidor (Auth, RPC, Storage) |
+| lucide-react | 1.48.0 | ícones da interface |
+| @electric-sql/pglite | 0.5.8 | **só testes**: Postgres real em WASM para executar as migrações e a RLS |
+| fake-indexeddb | 6.2.5 | **só testes**: IndexedDB para o repositório local |
 
-Node: 22.22.2 no ambiente de desenvolvimento cloud. Fica registado em `.nvmrc`; a versão final é fixada quando o projeto correr na sua máquina.
+Node: **24** (`.nvmrc`). A Fase 0 foi executada com o Node v24.18.0 na máquina local (Windows 11). O `package.json` mantém `engines.node >=22.12`, mas o Node 22 não foi testado localmente.
 
 ## D4 · Identidade de componentes
 
@@ -63,14 +70,27 @@ Node: 22.22.2 no ambiente de desenvolvimento cloud. Fica registado em `.nvmrc`; 
 
 ## D5 · Fronteira React ↔ motor
 
-O GrapesJS é dono do documento. O React guarda apenas estado transitório (painel aberto, diálogo, preferências) e lê o motor por eventos. Não existe cópia da árvore em store.
+O GrapesJS é dono do documento. O React guarda apenas estado transitório (painel aberto, diálogo, preferências) e lê o motor por eventos (`src/editor/useEditorTick.ts`). Não existe cópia da árvore em store.
+
+- Nomes para o utilizador ("Título", "Imagem", "Secção") são **derivados** do modelo (`src/engine/labels.ts`) e nunca gravados. O destaque do canvas usa os mesmos nomes.
+- Estilos editados no painel vão para a regra `#id` do elemento, no media query do dispositivo ativo (`src/engine/styles.ts`). Ficam no JSON de projeto e o desfazer do motor cobre-os.
+- Cada dispositivo tem a sua largura real na moldura do canvas (computador 1280 px, tablet 768 px, telemóvel 375 px). O editor ajusta o zoom do motor para caber, por isso cada pré-visualização aplica as regras do seu próprio breakpoint.
+- As posições válidas são regras dos tipos no motor (`draggable`/`droppable`), validadas com `Components.canMove`. A árvore, os botões e a inserção de blocos usam a mesma regra.
 
 ## D6 · Organização
 
-Aplicação modular única (sem monorepo): `contract`, `engine`, `persistence`, `projects`, `editor`, `importers`, `templates`, `assets`, `ai`, `publish`. Na Fase 0 só existem `contract`, `engine` e `persistence`.
+Aplicação modular única (sem monorepo). Existem hoje: `contract`, `engine`, `persistence`, `assets`, `auth`, `app` (moldura, rotas, serviços), `dashboard`, `library` (biblioteca de templates), `templates` (definições) e `editor`. `poc` fica como rota de diagnóstico (`/prova-tecnica`). Ainda por criar: `importers`, `ai` e `publish`. Todos vão produzir ou consumir o mesmo `BoltDocument`, sem modelo de página concorrente.
 
-## Bloqueios em 28/09/2026
+## D7 · Destino de persistência
 
-- **Registo npm bloqueado** pela política de rede da sessão: `Host not in allowlist: registry.npmjs.org` (HTTP 403). Impede instalar dependências e executar a prova. Para desbloquear, adicionar `registry.npmjs.org` aos domínios permitidos.
-- `grapesjs.com` e `app.grapesjs.com` também estão bloqueados para o shell. A documentação foi lida pela ferramenta de leitura web.
+- Há **um** destino ativo por sessão. Com `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` definidos, é o servidor: exige sessão iniciada e usa `SupabaseRepository` e `SupabaseAssetStore`. Sem eles, é o modo local (`IndexedDbRepository`, `LocalAssetStore`).
+- Não há recurso silencioso de um para o outro. O modo local está sempre identificado na interface ("Modo local · só neste browser", "Alterações guardadas neste browser").
+- Os dois modos implementam o mesmo `ProjectCatalog` e passam pela mesma `SaveQueue`, que é a única via de gravação.
+
+## Bloqueios
+
+**Resolvidos (28/09/2026):** o registo npm estava bloqueado na sessão cloud (`Host not in allowlist: registry.npmjs.org`, HTTP 403). O projeto passou a correr na máquina local, onde as dependências foram instaladas e a prova foi executada (`docs/05`). Na sessão cloud, `grapesjs.com` e `app.grapesjs.com` também estavam bloqueados para o shell, e a documentação foi lida pela ferramenta de leitura web.
+
+**Em aberto:**
+
 - A referência `app.grapesjs.com/project/x2cjozzzuqnvj5a1qzwtv0vf` **não foi aberta**, e não foram fornecidos prints ou vídeos. Não há observações sobre ela.
