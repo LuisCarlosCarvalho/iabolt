@@ -278,6 +278,39 @@ export function insertBlock(editor: Editor, def: ComponentDefinition, anchor?: C
   throw new Error('Não há posição válida para este elemento');
 }
 
+/** Onde inserir em relação ao elemento de referência. */
+export type InsertPosition = 'before' | 'after' | 'inside';
+
+/** Pai e índice correspondentes a uma posição; null quando não existe (ex.: antes da raiz). */
+export function insertionPoint(anchor: Component, position: InsertPosition): { parent: Component; at: number } | null {
+  if (position === 'inside') return { parent: anchor, at: anchor.components().length };
+  const parent = anchor.parent();
+  if (!parent) return null;
+  return { parent, at: anchor.index() + (position === 'after' ? 1 : 0) };
+}
+
+/** Verdadeiro quando as regras dos tipos aceitam `def` nessa posição (sem criar nada). */
+export function canInsert(editor: Editor, def: ComponentDefinition, anchor: Component, position: InsertPosition): boolean {
+  if (position === 'inside' && (isTextLike(anchor) || anchor.is('image'))) return false;
+  const point = insertionPoint(anchor, position);
+  return !!point && editor.Components.canMove(point.parent, def, point.at).result;
+}
+
+/**
+ * Insere `def` exatamente na posição pedida (antes, depois ou dentro da referência) e seleciona
+ * o elemento criado. Recusa posições incompatíveis em vez de procurar outra. Uma única entrada
+ * no histórico: desfazer remove a inserção.
+ */
+export function insertAt(editor: Editor, def: ComponentDefinition, anchor: Component, position: InsertPosition): Component {
+  if (!canInsert(editor, def, anchor, position)) throw new Error('Este elemento não pode ser inserido nessa posição');
+  const point = insertionPoint(anchor, position);
+  if (!point) throw new Error('Posição inválida');
+  const [added] = point.parent.append(def, { at: point.at });
+  if (!added) throw new Error('Falha ao inserir o elemento');
+  editor.select(added);
+  return added;
+}
+
 /** Árvore mínima (id, tipo, filhos) para asserções e Navigator. */
 export interface TreeNode {
   id: string;

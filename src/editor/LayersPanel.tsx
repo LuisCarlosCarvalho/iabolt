@@ -32,6 +32,10 @@ export function navigableChildren(c: Component): Component[] {
   return c.components().models.filter((child) => child.get('type') !== 'textnode');
 }
 
+/** Ícones e o SVG lá dentro: detalhe interno, fechado por omissão (abre-se na seta ou ao selecionar lá dentro). */
+const CLOSED_BY_DEFAULT = new Set(['bolt-icon', 'svg']);
+const closedByDefault = (c: Component) => CLOSED_BY_DEFAULT.has(c.get('type') ?? '');
+
 interface DragState {
   sourceId: string;
   over: { id: string; pos: DropPos } | null;
@@ -41,6 +45,8 @@ export function LayersPanel({ editor }: { editor: Editor }) {
   const wrapper = editor.getWrapper();
   const selected = editor.getSelected();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Nós fechados por omissão (detalhe interno de ícones SVG) que o utilizador abriu.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [drag, setDrag] = useState<DragState | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,11 +54,13 @@ export function LayersPanel({ editor }: { editor: Editor }) {
   // Os antepassados da seleção ficam sempre abertos, para a seleção ser visível.
   const openPath = new Set(selected ? selected.parents().map((p) => p.getId()) : []);
 
-  const toggle = (id: string) => {
-    const next = new Set(collapsed);
+  const toggle = (c: Component) => {
+    const id = c.getId();
+    const [set, save] = closedByDefault(c) ? [expanded, setExpanded] : [collapsed, setCollapsed];
+    const next = new Set(set);
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    setCollapsed(next);
+    save(next);
   };
 
   const resolveDrop = (target: Component, pos: DropPos): { parent: Component; at: number } | null => {
@@ -100,7 +108,7 @@ export function LayersPanel({ editor }: { editor: Editor }) {
     const id = c.getId();
     const kids = navigableChildren(c);
     const isRoot = depth === 0;
-    const open = isRoot || openPath.has(id) || !collapsed.has(id);
+    const open = isRoot || openPath.has(id) || (closedByDefault(c) ? expanded.has(id) : !collapsed.has(id));
     const isSelected = selected === c;
     const hint = contentHint(c);
     const dropClass = drag?.over?.id === id ? `drop-${drag.over.pos}` : '';
@@ -132,7 +140,7 @@ export function LayersPanel({ editor }: { editor: Editor }) {
               aria-expanded={open}
               onClick={(e) => {
                 e.stopPropagation();
-                toggle(id);
+                toggle(c);
               }}
             >
               <ChevronRight />
