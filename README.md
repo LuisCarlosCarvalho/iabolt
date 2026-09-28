@@ -14,13 +14,20 @@ npx playwright install chromium # só para os testes no browser
 npm run dev                     # http://localhost:5173/
 ```
 
-Sem `.env.local`, a aplicação corre em **modo local**: os projetos ficam só neste browser (IndexedDB) e a interface indica-o sempre. Para usar a base de dados, copie `.env.example` para `.env.local` e siga `docs/06`.
+Sem `.env.local`, a aplicação corre em **modo local**: os projetos ficam só neste browser (IndexedDB) e a interface indica-o sempre. Para usar a base de dados, copie `.env.example` para `.env.local` e siga `docs/07-configurar-supabase.md`.
 
 ## Verificação
 
 ```bash
 npm run check     # typecheck, lint, testes (unitários e base de dados), build, git diff --check
-npm run test:e2e  # percursos reais no browser (Chromium)
+npm run test:e2e  # percursos reais no browser (Chromium), modo local, porta própria 5175
+```
+
+Depois de configurar o Supabase (`docs/07-configurar-supabase.md`):
+
+```bash
+npm run test:server      # API real (Auth, RPC, Storage) com duas contas de teste
+npm run test:e2e:server  # browser real contra o Supabase, porta própria 5176
 ```
 
 ## Rotas
@@ -38,4 +45,5 @@ npm run test:e2e  # percursos reais no browser (Chromium)
 - `docs/03-matriz-importacao.md`: formatos de importação (fases seguintes)
 - `docs/04-plano-de-testes.md`: o que cada teste prova
 - `docs/05-resultados-fase0.md` e `docs/06-entrega-1-primeira-versao.md`: resultados executados
+- `docs/07-configurar-supabase.md`: configurar o projeto Supabase e validar
 - `CLAUDE.md`: regras operacionais

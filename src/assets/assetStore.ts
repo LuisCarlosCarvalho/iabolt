@@ -1,10 +1,21 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { PersistenceMode } from '../persistence/repository';
+import { assetPath, assetRef, isAssetRef } from './assetRefs';
+
+export interface UploadedAsset {
+  /** O que fica gravado no documento. */
+  stored: string;
+  /** O que o browser usa para mostrar agora (igual a `stored` no modo local). */
+  display: string;
+  name: string;
+}
 
 /** Destino das imagens carregadas pelo utilizador. Mesmo modo que o repositório de projetos. */
 export interface AssetStore {
   readonly mode: PersistenceMode;
-  upload(file: File, ctx: { projectId: string; workspaceId?: string }): Promise<{ src: string; name: string }>;
+  upload(file: File, ctx: { projectId: string; workspaceId?: string }): Promise<UploadedAsset>;
+  /** URLs para mostrar referências guardadas. As que não é possível resolver ficam de fora. */
+  resolve(refs: readonly string[]): Promise<Map<string, string>>;
 }
 
 export const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/avif'] as const;
@@ -12,7 +23,7 @@ export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 /** Lado maior depois de reduzir. Evita imagens de câmara com dezenas de MB no projeto. */
 const MAX_SIDE = 1600;
 
-export function validateImage(file: File): void {
+export function validateImage(file: Blob): void {
   if (!ACCEPTED_IMAGE_TYPES.some((t) => t === file.type)) {
     throw new Error('Formato não suportado. Use PNG, JPEG, WebP, GIF ou AVIF.');
   }
@@ -30,9 +41,9 @@ function readAsDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-/** Reduz imagens grandes (exceto GIF, que pode ser animado). */
-async function downscale(file: File): Promise<Blob> {
-  if (file.type === 'image/gif' || typeof createImageBitmap !== 'function') return file;
+/** Reduz imagens grandes (exceto GIF, que pode ser animado). Sem canvas (ex.: Node), mantém o original. */
+async function downscale(file: Blob): Promise<Blob> {
+  if (file.type === 'image/gif' || typeof createImageBitmap !== 'function' || typeof document === 'undefined') return file;
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
   if (scale === 1) {
@@ -56,28 +67,56 @@ async function downscale(file: File): Promise<Blob> {
 export class LocalAssetStore implements AssetStore {
   readonly mode = 'local' as const;
 
-  async upload(file: File): Promise<{ src: string; name: string }> {
+  async upload(file: File): Promise<UploadedAsset> {
     validateImage(file);
-    return { src: await readAsDataUrl(await downscale(file)), name: file.name };
+    const dataUrl = await readAsDataUrl(await downscale(file));
+    return { stored: dataUrl, display: dataUrl, name: file.name };
+  }
+
+  async resolve(): Promise<Map<string, string>> {
+    return new Map();
   }
 }
 
 const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/avif': 'avif' };
 
-/** Modo servidor: Supabase Storage, bucket `project-assets`, pasta do workspace (RLS). */
+/** Validade dos URLs assinados: cobre uma sessão de edição longa. */
+export const SIGNED_URL_SECONDS = 12 * 60 * 60;
+export const ASSET_BUCKET = 'project-assets';
+
+/**
+ * Modo servidor: Supabase Storage, bucket PRIVADO `project-assets`, pasta do workspace (RLS).
+ * O documento guarda `bolt-asset:<caminho>`; para mostrar, pede URLs assinados (só quem é
+ * membro do workspace os consegue obter).
+ */
 export class SupabaseAssetStore implements AssetStore {
   readonly mode = 'server' as const;
 
   constructor(private readonly client: SupabaseClient) {}
 
-  async upload(file: File, ctx: { projectId: string; workspaceId?: string }): Promise<{ src: string; name: string }> {
+  async upload(file: File, ctx: { projectId: string; workspaceId?: string }): Promise<UploadedAsset> {
     validateImage(file);
     if (!ctx.workspaceId) throw new Error('Workspace do projeto desconhecido: não é possível carregar a imagem.');
     const blob = await downscale(file);
     const type = blob.type || file.type;
     const path = `${ctx.workspaceId}/${ctx.projectId}/${crypto.randomUUID()}.${EXT[type] ?? 'bin'}`;
-    const { error } = await this.client.storage.from('project-assets').upload(path, blob, { contentType: type, upsert: false });
+    const { error } = await this.client.storage.from(ASSET_BUCKET).upload(path, blob, { contentType: type, upsert: false });
     if (error) throw new Error(`Falha ao carregar a imagem: ${error.message}`);
-    return { src: this.client.storage.from('project-assets').getPublicUrl(path).data.publicUrl, name: file.name };
+    const ref = assetRef(path);
+    const display = (await this.resolve([ref])).get(ref);
+    if (!display) throw new Error('A imagem foi carregada, mas o servidor não devolveu um endereço para a mostrar.');
+    return { stored: ref, display, name: file.name };
+  }
+
+  async resolve(refs: readonly string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const own = refs.filter(isAssetRef);
+    if (own.length === 0) return out;
+    const { data, error } = await this.client.storage.from(ASSET_BUCKET).createSignedUrls(own.map(assetPath), SIGNED_URL_SECONDS);
+    if (error) throw new Error(`Não foi possível obter as imagens do projeto: ${error.message}`);
+    for (const item of data) {
+      if (!item.error && item.signedUrl && item.path) out.set(assetRef(item.path), item.signedUrl);
+    }
+    return out;
   }
 }

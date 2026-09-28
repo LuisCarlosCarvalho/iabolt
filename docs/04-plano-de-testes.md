@@ -16,6 +16,7 @@ Comandos: `npm test` (unitários e base de dados), `npm run test:e2e` (browser) 
   - inserção de blocos;
   - reordenar, duplicar, eliminar, ligações e estilos por dispositivo sobrevivem a reabrir;
   - estilos no desfazer.
+- `tests/unit/assetsAndTransfer.test.ts`: imagens privadas (referência ↔ URL assinado, gravação sem tokens); cópia de segurança; cópia para a conta idempotente, sem alterar os locais, com falhas por projeto.
 - `tests/unit/indexedDbRepository.test.ts`: modo local. Lista vazia, idempotência, conflito, ordenação, mudar o nome, arquivar, documento inválido recusado, SaveQueue sobre IndexedDB.
 
 ## Base de dados · Vitest + PGlite
@@ -33,12 +34,20 @@ Comandos: `npm test` (unitários e base de dados), `npm run test:e2e` (browser) 
   - edição direta no canvas, desfazer e refazer;
   - arrastar na árvore, com recusa de destino inválido;
   - Dashboard: mudar o nome e remover;
+  - conflito entre dois separadores;
+  - erro de gravação sem «guardado» e confirmação ao sair;
+  - cópia de segurança dos projetos locais;
   - projeto inexistente.
 - `tests/e2e/poc.spec.ts`: prova da Fase 0, na rota `/prova-tecnica`.
 
-## Por executar (depende de configuração externa)
+## Contra o Supabase real (escritos; por executar até haver projeto, `docs/07`)
 
-Contra o projeto Supabase real:
+- `npm run test:server` → `tests/server/supabase.api.test.ts` (9 casos, API real com as contas de teste A e B).
+- `npm run test:e2e:server` → `tests/e2e-server/server.spec.ts` (6 casos, browser real).
+
+Continua manual: criar uma conta pelo ecrã e confirmar o email.
+
+Estes testes cobrem, contra o projeto Supabase real:
 
 - conta nova com workspace criado;
 - percurso E2E completo em modo servidor;

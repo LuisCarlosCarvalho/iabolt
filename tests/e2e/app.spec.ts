@@ -272,6 +272,67 @@ test('Dashboard: mudar o nome e remover um projeto', async ({ page }) => {
   await expect(page.getByTestId('project-card')).toHaveCount(0);
 });
 
+test('conflito entre dois separadores: o segundo não sobrescreve e é avisado', async ({ page, context }) => {
+  await createFromTemplate(page, 0, 'Dois separadores');
+  const url = page.url();
+  const other = await context.newPage();
+  await other.goto(url);
+  await expect(other.getByTestId('save-status')).toHaveText('Alterações guardadas neste browser');
+
+  await layer(page, 'Decisões de marketing').click();
+  await page.getByTestId('prop-text').fill('Versão do separador A');
+  await page.getByTestId('prop-text').press('Tab');
+  await saveAndConfirm(page);
+
+  await layer(other, 'Decisões de marketing').click();
+  await other.getByTestId('prop-text').fill('Versão do separador B');
+  await other.getByTestId('prop-text').press('Tab');
+  await other.getByTestId('save').click();
+  await expect(other.getByTestId('save-status')).toHaveText('Conflito: versão mais recente noutro sítio');
+  await expect(other.getByRole('alert').filter({ hasText: 'alterado noutro separador' })).toBeVisible();
+  await expect(other.getByTestId('save')).toBeDisabled();
+
+  const check = await context.newPage();
+  await check.goto(url);
+  await expect(frame(check).locator('h1')).toHaveText('Versão do separador A');
+});
+
+test('erro de gravação é mostrado e nunca aparece como guardado', async ({ page, context }) => {
+  await createFromTemplate(page, 0, 'Vai falhar');
+  // Noutro separador, o projeto é removido: a gravação seguinte do editor tem de falhar.
+  const other = await context.newPage();
+  await other.goto('/');
+  await other.getByRole('button', { name: 'Opções de Vai falhar' }).click();
+  await other.getByRole('menuitem', { name: 'Remover' }).click();
+  await other.getByRole('dialog').getByRole('button', { name: 'Remover' }).click();
+  await expect(other.getByRole('heading', { name: 'Ainda não tem projetos' })).toBeVisible();
+
+  await layer(page, 'Decisões de marketing').click();
+  await page.getByTestId('prop-text').fill('Alteração que não pode ser gravada');
+  await page.getByTestId('prop-text').press('Tab');
+  await page.getByTestId('save').click();
+  await expect(page.getByTestId('save-status')).toHaveText('Não foi possível guardar');
+  await expect(page.getByRole('alert').filter({ hasText: 'Não foi possível guardar.' })).toBeVisible();
+  await expect(page.getByText('Alterações guardadas neste browser')).toHaveCount(0);
+  // A alteração continua no editor e sair pede confirmação.
+  await expect(frame(page).locator('h1')).toHaveText('Alteração que não pode ser gravada');
+  await page.getByTestId('back-to-projects').click();
+  await expect(page.getByRole('dialog', { name: 'Sair sem guardar?' })).toBeVisible();
+});
+
+test('cópia de segurança dos projetos locais', async ({ page }) => {
+  await createFromTemplate(page, 1, 'Para guardar');
+  await page.getByTestId('back-to-projects').click();
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('export-local').click()]);
+  expect(download.suggestedFilename()).toMatch(/^bolt-ia-copia-local-.*\.json$/);
+  const path = await download.path();
+  const { readFile } = await import('node:fs/promises');
+  const backup = JSON.parse(await readFile(path, 'utf8')) as { format: string; projects: Array<{ summary: { name: string }; document: { projectData: unknown } }> };
+  expect(backup.format).toBe('bolt-ia-backup');
+  expect(backup.projects.map((p) => p.summary.name)).toEqual(['Para guardar']);
+  expect(JSON.stringify(backup.projects[0]?.document.projectData)).toContain('Estratégia clara para empresas');
+});
+
 test('projeto inexistente mostra um erro compreensível', async ({ page }) => {
   await page.goto('/projetos/00000000-0000-4000-8000-000000000000');
   await expect(page.getByRole('heading', { name: 'Projeto não encontrado' })).toBeVisible();

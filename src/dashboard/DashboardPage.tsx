@@ -1,11 +1,13 @@
 import { FilePlus2, FolderOpen, Info, LayoutTemplate, MoreHorizontal, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, projectPath } from '../app/router';
+import { resolveForDisplay } from '../assets/resolveForDisplay';
 import { useServices } from '../app/services';
 import { SitePreview } from '../app/SitePreview';
 import { Button, errorMessage, formatDateTime, formatRelative, IconButton, Modal, StatePanel } from '../app/ui';
 import type { ProjectSummary } from '../persistence/repository';
 import { templateName } from '../templates/registry';
+import { ExportLocalButton, LocalProjectsPanel } from './LocalProjectsPanel';
 
 type ListState = { status: 'loading' } | { status: 'ready'; projects: ProjectSummary[] } | { status: 'error'; message: string };
 
@@ -38,6 +40,7 @@ export function DashboardPage() {
           <p>Crie uma página a partir de um template, edite-a visualmente e volte a ela quando quiser.</p>
         </div>
         <div className="page-actions">
+          {mode === 'local' && state.status === 'ready' && state.projects.length > 0 && <ExportLocalButton />}
           <Link to="/templates" className="btn btn-primary btn-lg">
             <FilePlus2 aria-hidden="true" />
             Novo projeto
@@ -50,10 +53,13 @@ export function DashboardPage() {
           <Info aria-hidden="true" />
           <div>
             <strong>Servidor ainda não configurado.</strong> Os projetos ficam guardados só neste browser (IndexedDB). Não são enviados para a base de dados e
-            desaparecem se os dados do site forem limpos. A ligação ao servidor está preparada e ativa-se com as credenciais do Supabase.
+            desaparecem se os dados do site forem limpos. Quando o servidor for ativado, estes projetos continuam neste browser e podem ser copiados para a
+            sua conta. Antes disso, guarde uma cópia de segurança com «Exportar cópia de segurança».
           </div>
         </div>
       )}
+
+      {mode === 'server' && <LocalProjectsPanel onCopied={load} />}
 
       {state.status === 'loading' && (
         <div className="card-grid" aria-busy="true" aria-label="A carregar projetos">
@@ -124,14 +130,14 @@ export function DashboardPage() {
 }
 
 function ProjectCard({ project, onRename, onRemove }: { project: ProjectSummary; onRename: () => void; onRemove: () => void }) {
-  const { catalog } = useServices();
+  const { catalog, assets } = useServices();
   const [menu, setMenu] = useState(false);
   const origin = templateName(project.templateId);
   return (
     <article className="card" data-testid="project-card">
       <SitePreview
         label={`Pré-visualização de ${project.name}`}
-        source={{ key: `${project.id}:${project.revision}`, load: () => catalog.load(project.id).then((d) => d.projectData) }}
+        source={{ key: `${project.id}:${project.revision}`, load: () => catalog.load(project.id).then(async (d) => (await resolveForDisplay(assets, d.projectData)).data) }}
       />
       <Link to={projectPath(project.id)} className="card-link" aria-label={`Abrir ${project.name}`} />
       <div className="card-body">

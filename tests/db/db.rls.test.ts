@@ -156,14 +156,24 @@ describe('Base de dados · migrações e RLS (PGlite)', () => {
     });
   });
 
-  it('imagens: só editores do workspace escrevem na pasta do workspace', async () => {
+  it('imagens: bucket privado; só membros leem e só editores escrevem na pasta do workspace', async () => {
+    const bucket = await db.query<{ public: boolean }>(`select public from storage.buckets where id = 'project-assets'`);
+    expect(bucket.rows[0]?.public).toBe(false);
     const ws = await as(USER_A, async () => (await createProject('88888888-8888-4888-8888-888888888888', 'imgs')).workspace_id);
     await as(USER_A, async () => {
       const ok = await db.query(`insert into storage.objects (bucket_id, name) values ('project-assets', $1)`, [`${ws}/p/logo.png`]);
       expect(ok.affectedRows).toBe(1);
+      const own = await db.query(`select name from storage.objects where bucket_id = 'project-assets'`);
+      expect(own.rows).toHaveLength(1);
+      // Caminho sem workspace válido: recusado sem erro interno.
+      await expect(db.query(`insert into storage.objects (bucket_id, name) values ('project-assets', 'sem-uuid/x.png')`)).rejects.toThrow(/row-level security/);
     });
     await as(USER_B, async () => {
       await expect(db.query(`insert into storage.objects (bucket_id, name) values ('project-assets', $1)`, [`${ws}/p/intruso.png`])).rejects.toThrow(/row-level security/);
+      const visible = await db.query(`select name from storage.objects where bucket_id = 'project-assets'`);
+      expect(visible.rows).toHaveLength(0);
+      const del = await db.query(`delete from storage.objects where bucket_id = 'project-assets'`);
+      expect(del.affectedRows).toBe(0);
     });
   });
 });

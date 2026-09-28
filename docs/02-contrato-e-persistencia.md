@@ -45,7 +45,9 @@ O documento editável canónico é o JSON de projeto do GrapesJS (`editor.getPro
 Migrações em `supabase/migrations/`:
 
 - `…_projetos_e_revisoes.sql`: `workspaces`, `workspace_members(role owner|editor|viewer)`, `projects` e `project_revisions`. Inclui o trigger que cria um workspace pessoal para cada conta nova.
-- `…_storage_imagens.sql`: bucket `project-assets`, com escrita só na pasta `<workspace_id>/…` para editores. A leitura é pública por URL, porque as imagens vão aparecer nas páginas publicadas. SVG está excluído.
+- `…_storage_imagens.sql`: bucket **privado** `project-assets`. Ler e obter URLs assinados é permitido aos membros do workspace; escrever, substituir e apagar, a owner e editor. Só na pasta `<workspace_id>/…`. SVG está excluído.
+
+**Imagens no documento:** o documento guarda `bolt-asset:<caminho>`, nunca um URL temporário (`src/assets/assetRefs.ts`). Ao abrir, as referências são trocadas por URLs assinados (12 h) só para mostrar; ao gravar, voltam a ser referências. Assim a gravação não expira, e quem não é membro não obtém a imagem. No modo local, as imagens ficam no documento como data URL. A publicação (fase 5) terá de copiar as imagens usadas para um destino público.
 
 **Via única de gravação no servidor:** o cliente (`authenticated`) só tem `SELECT` e `UPDATE (name, archived_at)` em `projects`. Criar e gravar o documento só é possível pelas funções:
 
@@ -54,7 +56,28 @@ Migrações em `supabase/migrations/`:
 
 Ambas são `SECURITY DEFINER`, com verificação explícita de `auth.uid()` e de membro com papel `owner`/`editor`. Quem não é membro recebe `project_not_found`, sem saber se o projeto existe. Projetos arquivados deixam de aceitar gravações. Não há `DELETE`.
 
-**Verificado** (`tests/db/db.rls.test.ts`, 9 casos) executando as migrações reais num Postgres em WASM:
+### Como foram executados os 9 testes de base de dados
+
+- **Motor:** PGlite 0.5.8, que é o PostgreSQL 17 compilado para WASM, dentro do processo do Vitest (Node). É um Postgres real (parser, planner, RLS, `SECURITY DEFINER`, permissões por coluna), não uma simulação. Não há servidor, rede nem Supabase.
+- **Preparação:** antes das migrações, o teste cria um substituto mínimo do que o Supabase fornece:
+  - os papéis `anon` e `authenticated` (`NOLOGIN`);
+  - o schema `auth`, com `auth.users` e `auth.uid()`, que lê `current_setting('request.jwt.claim.sub')`;
+  - o schema `storage`, com `storage.buckets`, `storage.objects` (com RLS) e `storage.foldername`.
+  Depois executa os ficheiros reais de `supabase/migrations/` por ordem.
+- **Identidade simulada:** dois utilizadores inseridos diretamente em `auth.users`, como superutilizador, o que dispara o trigger do workspace pessoal. Cada operação corre com `set_config('request.jwt.claim.sub', <uuid>)` seguido de `SET ROLE authenticated` (ou `anon` sem utilizador) e termina com `RESET ROLE`. É o mesmo mecanismo que o PostgREST usa no Supabase, mas sem JWT: não há assinatura nem validação de token.
+
+**O que isto prova:** a lógica SQL das migrações (tabelas, RLS, permissões, funções, trigger e políticas de Storage) com dois utilizadores.
+
+**O que isto não prova:**
+- o Supabase Auth real (registo, confirmação de email, JWT, renovação de sessão);
+- o PostgREST e o RPC via HTTP;
+- a API do Storage (upload, URLs assinados, bucket privado servido pelo CDN);
+- as permissões por omissão do Supabase, que podem diferir do substituto;
+- o cliente `supabase-js` e o código `SupabaseRepository`/`SupabaseAssetStore`.
+
+Isso é coberto por `npm run test:server` (API real) e `npm run test:e2e:server` (browser real), que só correm depois da configuração (`docs/07`).
+
+**Verificado** (`tests/db/db.rls.test.ts`, 9 casos) executando as migrações reais no PGlite:
 
 - workspace pessoal criado com a conta;
 - criação idempotente;
@@ -64,9 +87,8 @@ Ambas são `SECURITY DEFINER`, com verificação explícita de `auth.uid()` e de
 - isolamento completo entre dois utilizadores (ler, gravar, renomear, criar no workspace alheio);
 - `anon` sem acesso;
 - arquivado sem gravações;
-- Storage só na pasta do próprio workspace.
+- Storage: bucket privado; só membros leem; só editores escrevem na pasta do próprio workspace; caminho inválido recusado.
 
-O schema `auth`/`storage` do Supabase é substituído no teste por um equivalente mínimo. Falta repetir estes casos contra o projeto Supabase real.
 
 ## Entidades ainda por implementar (fases seguintes)
 

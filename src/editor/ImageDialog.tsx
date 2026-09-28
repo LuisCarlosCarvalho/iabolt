@@ -1,6 +1,7 @@
 import type { Component, Editor } from 'grapesjs';
 import { Upload } from 'lucide-react';
 import { useRef, useState, type FormEvent } from 'react';
+import type { AssetUrlMap } from '../assets/assetRefs';
 import { ACCEPTED_IMAGE_TYPES } from '../assets/assetStore';
 import { useServices } from '../app/services';
 import { Button, errorMessage, Modal } from '../app/ui';
@@ -22,7 +23,7 @@ function pageImages(editor: Editor): string[] {
   return [...out];
 }
 
-export function ImageDialog({ editor, target, projectId, workspaceId, onClose }: { editor: Editor; target: Component | null; projectId: string; workspaceId?: string; onClose: () => void }) {
+export function ImageDialog({ editor, target, projectId, workspaceId, urls, onClose }: { editor: Editor; target: Component | null; projectId: string; workspaceId?: string; urls: AssetUrlMap; onClose: () => void }) {
   const { assets, mode } = useServices();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -43,8 +44,10 @@ export function ImageDialog({ editor, target, projectId, workspaceId, onClose }:
     setBusy(true);
     setError(null);
     try {
-      const { src } = await assets.upload(file, { projectId, ...(workspaceId ? { workspaceId } : {}) });
-      apply(src);
+      const uploaded = await assets.upload(file, { projectId, ...(workspaceId ? { workspaceId } : {}) });
+      // O canvas mostra o URL; a gravação volta a usar a referência estável.
+      urls.register(uploaded.stored, uploaded.display);
+      apply(uploaded.display);
     } catch (err) {
       setError(errorMessage(err));
     } finally {

@@ -6,7 +6,9 @@ import { ModeBadge } from '../app/AppShell';
 import { Link, navigate } from '../app/router';
 import { persistenceLabel, useServices } from '../app/services';
 import { Button, errorMessage, IconButton, Modal, Spinner, StatePanel } from '../app/ui';
-import type { BoltDocument } from '../contract/boltDocument';
+import type { AssetUrlMap } from '../assets/assetRefs';
+import { resolveForDisplay } from '../assets/resolveForDisplay';
+import type { BoltDocument, GrapesProjectData } from '../contract/boltDocument';
 import { createBoltEditor, getProjectData } from '../engine/createBoltEditor';
 import { contentHint, displayName } from '../engine/labels';
 import { duplicate, moveBy, remove, selectParent } from '../engine/operations';
@@ -36,17 +38,19 @@ function saveLabel(state: SaveState, mode: PersistenceMode): string {
   }
 }
 
-type LoadState = { status: 'loading' } | { status: 'ready'; doc: BoltDocument; summary: ProjectSummary } | { status: 'not-found' } | { status: 'error'; message: string };
+type LoadState = { status: 'loading' } | { status: 'ready'; doc: BoltDocument; summary: ProjectSummary; display: GrapesProjectData; urls: AssetUrlMap } | { status: 'not-found' } | { status: 'error'; message: string };
 
 export function EditorPage({ projectId }: { projectId: string }) {
-  const { catalog, mode } = useServices();
+  const { catalog, mode, assets } = useServices();
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let active = true;
     Promise.all([catalog.load(projectId), catalog.summary(projectId)])
-      .then(([doc, summary]) => active && setLoad({ status: 'ready', doc, summary }))
+      // Imagens privadas: as referências guardadas passam a URLs assinados só para mostrar.
+      .then(async ([doc, summary]) => ({ doc, summary, ...(await resolveForDisplay(assets, doc.projectData)) }))
+      .then(({ doc, summary, data, urls }) => active && setLoad({ status: 'ready', doc, summary, display: data, urls }))
       .catch((e: unknown) => {
         if (!active) return;
         setLoad(e instanceof ProjectNotFoundError ? { status: 'not-found' } : { status: 'error', message: errorMessage(e) });
@@ -54,9 +58,9 @@ export function EditorPage({ projectId }: { projectId: string }) {
     return () => {
       active = false;
     };
-  }, [catalog, projectId, attempt]);
+  }, [catalog, assets, projectId, attempt]);
 
-  if (load.status === 'ready') return <EditorWorkspace doc={load.doc} summary={load.summary} />;
+  if (load.status === 'ready') return <EditorWorkspace doc={load.doc} summary={load.summary} display={load.display} urls={load.urls} />;
 
   return (
     <div className="shell">
@@ -97,7 +101,7 @@ export function EditorPage({ projectId }: { projectId: string }) {
   );
 }
 
-function EditorWorkspace({ doc, summary }: { doc: BoltDocument; summary: ProjectSummary }) {
+function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; summary: ProjectSummary; display: GrapesProjectData; urls: AssetUrlMap }) {
   const { catalog, mode } = useServices();
   const canvasRef = useRef<HTMLDivElement>(null);
   const queueRef = useRef<SaveQueue | null>(null);
@@ -121,7 +125,7 @@ function EditorWorkspace({ doc, summary }: { doc: BoltDocument; summary: Project
     // Uma falha aqui chega ao AppErrorBoundary com a mensagem do motor.
     const ed = createBoltEditor({
         container,
-        projectData: doc.projectData,
+        projectData: display,
         extra: {
           panels: { defaults: [] },
           showToolbar: false,
@@ -142,7 +146,8 @@ function EditorWorkspace({ doc, summary }: { doc: BoltDocument; summary: Project
         repository: catalog,
         projectId: doc.projectId,
         loadedRevision: doc.revision,
-        snapshot: () => getProjectData(ed),
+        // Grava referências estáveis, nunca os URLs temporários de visualização.
+        snapshot: () => urls.forStorage(getProjectData(ed)),
         onState: (s, info) => {
           setSaveState(s);
           if (info?.revision !== undefined) setRevision(info.revision);
@@ -164,7 +169,7 @@ function EditorWorkspace({ doc, summary }: { doc: BoltDocument; summary: Project
       queueRef.current = null;
       ed.destroy();
     };
-  }, [catalog, doc]);
+  }, [catalog, doc, display, urls]);
 
   const saveNow = useCallback(async () => {
     const queue = queueRef.current;
@@ -292,9 +297,10 @@ function EditorWorkspace({ doc, summary }: { doc: BoltDocument; summary: Project
         {editor && <HistoryButtons editor={editor} />}
         <div className="shell-spacer" />
         <ModeBadge />
-        <span className="save-status" data-state={saveState} data-testid="save-status" aria-live="polite" title={saveError ?? undefined}>
+        {/* Até o motor carregar, nada está pronto para editar: não mostrar «guardado» ainda. */}
+        <span className="save-status" data-state={editor ? saveState : 'saving'} data-testid="save-status" aria-live="polite" title={saveError ?? undefined}>
           <span className="save-dot" aria-hidden="true" />
-          {saveLabel(saveState, mode)}
+          {editor ? saveLabel(saveState, mode) : 'A preparar o editor…'}
         </span>
         <Button variant="primary" data-testid="save" disabled={!editor || saveState === 'saving' || saveState === 'conflict'} onClick={() => void saveNow()}>
           <Save aria-hidden="true" /> Guardar
@@ -354,6 +360,7 @@ function EditorWorkspace({ doc, summary }: { doc: BoltDocument; summary: Project
           editor={editor}
           target={imageTarget}
           projectId={doc.projectId}
+          urls={urls}
           {...(summary.workspaceId ? { workspaceId: summary.workspaceId } : {})}
           onClose={() => setImageTarget(null)}
         />
