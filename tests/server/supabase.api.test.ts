@@ -1,36 +1,21 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assetPath } from '../../src/assets/assetRefs';
 import { ASSET_BUCKET, SupabaseAssetStore } from '../../src/assets/assetStore';
 import type { GrapesProjectData } from '../../src/contract/boltDocument';
 import { ProjectNotFoundError } from '../../src/persistence/repository';
 import { SupabaseRepository } from '../../src/persistence/supabaseRepository';
+import { cleanupProjects, newClient, signedIn } from './testAccounts';
 
 /**
  * Validação contra o projeto Supabase REAL (Auth, PostgREST/RPC e Storage), com o código
  * de produção do Bolt IA. Executar com `npm run test:server` depois de configurar (docs/07).
- * Cria dados marcados «[teste automático]» e remove-os (arquiva o projeto, apaga a imagem).
+ * Só usa as contas de teste A e B (`testAccounts.ts`). Cria projetos «[teste automático] …»
+ * e, no fim, apaga as imagens deles e arquiva-os (só os ids que o próprio teste criou).
  */
-const env = (name: string): string => {
-  const v = process.env[name]?.trim();
-  if (!v) throw new Error(`Falta ${name} em .env.local (ver docs/07-configurar-supabase.md).`);
-  return v;
-};
-
-const URL_ = env('VITE_SUPABASE_URL');
-const KEY = env('VITE_SUPABASE_ANON_KEY');
 const ENGINE = '0.23.6';
 // PNG 1×1 válido.
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==', 'base64');
-
-const newClient = () => createClient(URL_, KEY, { auth: { persistSession: false, autoRefreshToken: false } });
-
-async function signIn(prefix: 'A' | 'B'): Promise<SupabaseClient> {
-  const client = newClient();
-  const { error } = await client.auth.signInWithPassword({ email: env(`BOLT_TEST_USER_${prefix}_EMAIL`), password: env(`BOLT_TEST_USER_${prefix}_PASSWORD`) });
-  if (error) throw new Error(`Login da conta de teste ${prefix} falhou: ${error.message}`);
-  return client;
-}
 
 const page = (text: string, src?: string): GrapesProjectData => ({
   pages: [
@@ -58,23 +43,25 @@ let repoB: SupabaseRepository;
 let projectId = '';
 let workspaceId = '';
 let imageRef = '';
+const createdIds: string[] = [];
 
 beforeAll(async () => {
-  a = await signIn('A');
-  b = await signIn('B');
+  a = await signedIn('A');
+  b = await signedIn('B');
   repoA = new SupabaseRepository(a, ENGINE);
   repoB = new SupabaseRepository(b, ENGINE);
   const key = crypto.randomUUID();
   const created = await repoA.create(key, page('v0'), { name: '[teste automático] API', templateId: 'em-branco' });
   projectId = created.projectId;
+  createdIds.push(projectId);
   workspaceId = (await repoA.summary(projectId)).workspaceId ?? '';
 });
 
 afterAll(async () => {
-  if (imageRef) await a.storage.from(ASSET_BUCKET).remove([assetPath(imageRef)]);
-  if (projectId) await repoA.archive(projectId).catch(() => undefined);
   await a?.auth.signOut();
   await b?.auth.signOut();
+  const problems = await cleanupProjects('A', createdIds);
+  if (problems.length > 0) console.warn(`Limpeza incompleta:\n${problems.join('\n')}`);
 });
 
 describe('Supabase real · conta A', () => {
@@ -88,9 +75,9 @@ describe('Supabase real · conta A', () => {
   it('criar com a mesma chave não duplica', async () => {
     const key = crypto.randomUUID();
     const first = await repoA.create(key, page('x'), { name: '[teste automático] idempotente', templateId: null });
+    createdIds.push(first.projectId);
     const again = await repoA.create(key, page('x'), { name: '[teste automático] idempotente', templateId: null });
     expect(again.projectId).toBe(first.projectId);
-    await repoA.archive(first.projectId);
   });
 
   it('gravar devolve a nova revisão; revisão antiga dá conflito sem sobrescrever', async () => {

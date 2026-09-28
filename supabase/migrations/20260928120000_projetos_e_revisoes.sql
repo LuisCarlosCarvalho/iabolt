@@ -137,6 +137,25 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- Contas criadas antes desta migração também recebem o workspace pessoal.
+do $$
+declare
+  u record;
+  v_workspace uuid;
+begin
+  for u in
+    select au.id, au.email from auth.users au
+    where not exists (select 1 from public.workspace_members m where m.user_id = au.id)
+  loop
+    insert into public.workspaces (name, created_by)
+    values (left('Espaço de ' || coalesce(u.email, 'utilizador'), 120), u.id)
+    returning id into v_workspace;
+    insert into public.workspace_members (workspace_id, user_id, role)
+    values (v_workspace, u.id, 'owner');
+  end loop;
+end;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- Via única de gravação
 -- SECURITY DEFINER com verificação explícita de auth.uid() e de membro em cada função.

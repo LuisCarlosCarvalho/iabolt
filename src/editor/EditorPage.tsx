@@ -167,6 +167,8 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
       window.clearTimeout(timer);
       queueRef.current?.dispose();
       queueRef.current = null;
+      // Nenhum outro efeito pode usar um editor já destruído (zoom, atalhos, painéis).
+      setEditor(null);
       ed.destroy();
     };
   }, [catalog, doc, display, urls]);

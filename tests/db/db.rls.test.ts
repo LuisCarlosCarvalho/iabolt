@@ -32,6 +32,8 @@ const SUPABASE_STUB = `
 
 const USER_A = '00000000-0000-4000-8000-00000000000a';
 const USER_B = '00000000-0000-4000-8000-00000000000b';
+// Conta que já existia antes de as migrações serem aplicadas.
+const USER_OLD = '00000000-0000-4000-8000-0000000000c0';
 const DATA = (label: string) => JSON.stringify({ pages: [{ frames: [{ component: { type: 'wrapper', attributes: { id: 'root' }, components: [{ type: 'text', content: label }] } }] }] });
 
 let db: PGlite;
@@ -66,6 +68,7 @@ async function save(projectId: string, base: number, label: string): Promise<{ s
 beforeAll(async () => {
   db = await PGlite.create();
   await db.exec(SUPABASE_STUB);
+  await db.query(`insert into auth.users (id, email) values ($1, 'antiga@exemplo.pt')`, [USER_OLD]);
   const dir = join(process.cwd(), 'supabase', 'migrations');
   for (const file of readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {
     await db.exec(readFileSync(join(dir, file), 'utf8'));
@@ -74,9 +77,15 @@ beforeAll(async () => {
 }, 60_000);
 
 describe('Base de dados · migrações e RLS (PGlite)', () => {
-  it('cada conta nova recebe um workspace pessoal como owner', async () => {
+  it('cada conta, nova ou já existente antes da migração, tem um workspace pessoal como owner', async () => {
     const res = await db.query<{ n: number }>(`select count(*)::int as n from public.workspace_members where role = 'owner'`);
-    expect(res.rows[0]?.n).toBe(2);
+    expect(res.rows[0]?.n).toBe(3);
+    const old = await db.query<{ n: number }>(`select count(*)::int as n from public.workspace_members where user_id = $1`, [USER_OLD]);
+    expect(old.rows[0]?.n).toBe(1);
+    await as(USER_OLD, async () => {
+      const p = await createProject('99999999-9999-4999-8999-999999999999', 'conta antiga');
+      expect(p.current_revision).toBe(0);
+    });
   });
 
   it('criar é idempotente e começa na revisão 0 com histórico', async () => {
