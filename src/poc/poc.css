@@ -1,0 +1,13 @@
+/* Tokens Blue Bolt (docs de design system, tema escuro por omissão). Só a moldura da prova. */
+:root { --background: 210 40% 98%; --foreground: 222 47% 11%; --primary: 217 91% 50%; --border: 214 25% 88%; --card: 0 0% 100%; }
+.dark { --background: 222 47% 6%; --foreground: 210 40% 92%; --primary: 217 91% 60%; --border: 222 30% 18%; --card: 222 44% 8%; }
+html, body, #root { height: 100%; margin: 0; }
+body { font-family: 'Inter', system-ui, sans-serif; background: hsl(var(--background)); color: hsl(var(--foreground)); }
+.poc { display: flex; flex-direction: column; height: 100%; }
+.poc-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid hsl(var(--border)); }
+.poc-bar button { font: inherit; padding: 6px 12px; border-radius: 10px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); color: inherit; cursor: pointer; }
+.poc-bar button:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 2px; }
+.poc-bar button:disabled { opacity: .5; cursor: default; }
+.poc-main { flex: 1; display: grid; grid-template-columns: 260px 1fr; min-height: 0; }
+.poc-layers { border-right: 1px solid hsl(var(--border)); overflow: auto; }
+.poc-canvas { min-height: 0; }

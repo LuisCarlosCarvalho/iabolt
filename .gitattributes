@@ -1,0 +1,16 @@
+# Texto normalizado para LF no repositório e no disco, independentemente do core.autocrlf.
+* text=auto eol=lf
+
+# Amostras originais do utilizador (só leitura): guardadas byte a byte, sem normalização.
+amostra/** -text
+
+# Binários: nunca converter.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.zip binary
