@@ -114,7 +114,7 @@ export function TemplatesPage() {
         </div>
         {previewing && (
           <div style={{ width: device === 'desktop' ? '100%' : Math.min(PREVIEW_WIDTHS[device], 1000), margin: '0 auto', maxWidth: '100%' }}>
-            <div className="site-preview preview-tall is-interactive" style={{ border: '1px solid var(--border)', borderRadius: 10 }}>
+            <div className="site-preview preview-tall is-interactive" style={{ border: '1px solid var(--ui-border)', borderRadius: 'var(--ui-radius)' }}>
               <iframe
                 title={`Pré-visualização de ${previewing.name}`}
                 sandbox="allow-scripts"
