@@ -1,0 +1,155 @@
+/* Ecrã de entrada. Reproduz a referência visual (tema claro sobre vídeo); só se aplica aqui. */
+/* Inter (OFL), alojada no projeto, com nome próprio para não alterar o resto da aplicação. */
+@font-face {
+  font-family: 'Bolt Login Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/assets/fonts/inter-latin-var.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+.login {
+  --login-bg: 210 40% 98%;
+  --login-fg: rgb(15, 23, 41);
+  --login-muted: rgb(90, 104, 124);
+  --login-border: rgb(217, 223, 232);
+  --login-field: rgb(241, 245, 249);
+  --login-primary: rgb(11, 100, 244);
+  --login-primary-hover: rgb(9, 86, 212);
+  --login-font: 'Bolt Login Inter', Inter, system-ui, sans-serif;
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 24px;
+  color-scheme: light;
+  color: var(--login-fg);
+  font-family: var(--login-font);
+  /* Fundo alternativo enquanto o vídeo carrega (e com movimento reduzido). */
+  background: #000 url('/assets/login/poster.jpg') center / cover no-repeat;
+}
+@media (min-width: 768px) { .login { padding-left: 64px; } }
+@media (min-width: 1024px) { .login { padding-left: 128px; } }
+
+.login-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.login-veil { position: absolute; inset: 0; background: hsl(var(--login-bg) / 0.85); }
+
+.login-audio {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--login-border);
+  background: hsl(var(--login-bg) / 0.8);
+  backdrop-filter: blur(12px);
+  color: var(--login-fg);
+  font: 500 12px/18px var(--login-font);
+  cursor: pointer;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  transition: background-color 0.15s;
+}
+.login-audio:hover { background: hsl(210 40% 96%); }
+.login-audio svg { width: 16px; height: 16px; color: var(--login-primary); }
+.login-audio[aria-pressed='true'] svg { animation: login-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+@keyframes login-pulse { 50% { opacity: 0.5; } }
+
+.login-card {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 400px;
+  padding: 32px;
+  border-radius: 16px;
+  border: 1px solid var(--login-border);
+  background: hsl(var(--login-bg) / 0.95);
+  backdrop-filter: blur(24px);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  animation: login-in 0.5s ease-out both;
+}
+@keyframes login-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+.login-head { text-align: center; margin-bottom: 24px; }
+.login-logo { display: block; height: 80px; width: auto; max-width: 100%; object-fit: contain; margin: 0 auto 8px; user-select: none; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.15)); }
+.login-sub { margin: 0; font-size: 14px; line-height: 20px; color: var(--login-muted); }
+
+.login-form { display: flex; flex-direction: column; gap: 16px; }
+.login-field { display: flex; flex-direction: column; gap: 6px; }
+.login-label { font-size: 13px; line-height: 19.5px; font-weight: 500; color: var(--login-fg); }
+.login-input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--login-border);
+  background: var(--login-field);
+  color: var(--login-fg);
+  font: 400 14px/20px var(--login-font);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.login-input::placeholder { color: rgb(117, 129, 148); }
+.login-input:focus { border-color: var(--login-primary); }
+.login-input:focus-visible { box-shadow: 0 0 0 3px rgba(11, 100, 244, 0.18); }
+.login-input[aria-invalid='true'] { border-color: rgb(220, 38, 38); }
+.login-password { position: relative; }
+.login-password .login-input { padding-right: 40px; }
+.login-eye {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--login-muted);
+  cursor: pointer;
+}
+.login-eye:hover { color: var(--login-fg); }
+.login-eye svg { width: 16px; height: 16px; }
+
+.login-submit {
+  width: 100%;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 0;
+  border: 0;
+  border-radius: 12px;
+  background: var(--login-primary);
+  color: #000;
+  font: 500 16px/24px var(--login-font);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.login-submit:hover:not(:disabled) { background: var(--login-primary-hover); }
+.login-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.login-spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(0, 0, 0, 0.25); border-top-color: #000; animation: login-spin 0.8s linear infinite; }
+@keyframes login-spin { to { transform: rotate(360deg); } }
+
+.login-message { margin: 0; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 18px; }
+.login-message-error { color: rgb(153, 27, 27); background: rgb(254, 242, 242); border: 1px solid rgb(254, 202, 202); }
+.login-message-info { color: rgb(30, 64, 175); background: rgb(239, 246, 255); border: 1px solid rgb(191, 219, 254); }
+
+.login-foot { margin-top: 32px; text-align: center; display: flex; flex-direction: column; gap: 6px; }
+.login-foot p { margin: 0; font-size: 11px; line-height: 16.5px; color: var(--login-muted); }
+.login-switch { align-self: center; padding: 0; border: 0; background: none; font: 500 11px/16.5px var(--login-font); color: var(--login-muted); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.login-switch:hover { color: var(--login-fg); }
+
+.login :focus-visible { outline: 2px solid var(--login-primary); outline-offset: 2px; }
+.login .login-input:focus-visible { outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card, .login-audio svg, .login-spinner { animation: none; }
+}

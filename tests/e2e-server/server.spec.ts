@@ -26,9 +26,9 @@ test.afterAll(async () => {
 async function login(page: Page, who: Who) {
   const { email, password } = account(who);
   await page.goto('/');
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Palavra-passe').fill(password);
-  await page.getByRole('button', { name: 'Entrar', exact: true }).click();
+  await page.getByLabel('E-mail profissional').fill(email);
+  await page.getByLabel('Palavra-passe', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Entrar no estúdio' }).click();
   await expect(page.getByText('Guardado no servidor')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Projetos' })).toBeVisible();
 }
