@@ -1,6 +1,6 @@
 import type { Component, Editor } from 'grapesjs';
 import 'grapesjs/dist/css/grapes.min.css';
-import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpLeft, Copy, Monitor, Redo2, Save, Smartphone, Tablet, Trash2, Undo2 } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ArrowUpLeft, Copy, LayoutTemplate, Monitor, Redo2, Save, Smartphone, Tablet, Trash2, Undo2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ModeBadge } from '../app/AppShell';
 import { Link, navigate } from '../app/router';
@@ -10,11 +10,13 @@ import type { AssetUrlMap } from '../assets/assetRefs';
 import { resolveForDisplay } from '../assets/resolveForDisplay';
 import type { BoltDocument, GrapesProjectData } from '../contract/boltDocument';
 import { createBoltEditor, getProjectData } from '../engine/createBoltEditor';
+import { canvasRuntimeConfig, followSelectionInCarousels } from '../engine/runtime';
 import { contentHint, displayName } from '../engine/labels';
 import { duplicate, moveBy, remove, selectParent } from '../engine/operations';
 import { deviceById, type DeviceId } from '../engine/styles';
 import { ProjectNotFoundError, type PersistenceMode, type ProjectSummary } from '../persistence/repository';
 import { SaveQueue, type SaveState } from '../persistence/saveQueue';
+import { SaveTemplateDialog } from '../library/SaveTemplateDialog';
 import { BlocksPanel } from './BlocksPanel';
 import { ImageDialog } from './ImageDialog';
 import { LayersPanel } from './LayersPanel';
@@ -22,6 +24,22 @@ import { PropertiesPanel } from './PropertiesPanel';
 import { syncEditing, useEditorTick } from './useEditorTick';
 
 const AUTOSAVE_MS = 1200;
+
+/** Comando do motor que seleciona elementos ao clicar no canvas (id histórico do GrapesJS). */
+const SELECT_COMMAND = 'select-comp';
+
+/**
+ * Ajusta a moldura (largura real do dispositivo) à área disponível. Cada mudança de zoom faz o
+ * motor desligar a seleção por clique durante ~300 ms (CanvasView.updateFrames), por isso só
+ * se aplica quando o valor muda.
+ */
+function fitZoom(editor: Editor, host: HTMLElement, device: DeviceId): void {
+  const frameWidth = parseInt(deviceById(device).width, 10) || 1280;
+  const available = host.clientWidth - 48;
+  const zoom = Math.max(25, Math.min(100, Math.floor((available / frameWidth) * 100)));
+  host.style.setProperty('--bolt-zoom', String(zoom / 100));
+  if (editor.Canvas.getZoom() !== zoom) editor.Canvas.setZoom(zoom);
+}
 
 function saveLabel(state: SaveState, mode: PersistenceMode): string {
   switch (state) {
@@ -115,6 +133,7 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
   const [name, setName] = useState(summary.name);
   const [savedName, setSavedName] = useState(summary.name);
   const [leaving, setLeaving] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
   // Monta o motor com o documento validado. A fila de gravação só existe depois do 'load'.
   useEffect(() => {
@@ -131,8 +150,14 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
           showToolbar: false,
           showOffsets: true,
           undoManager: { trackSelection: false },
+          // Único script no canvas: o runtime próprio (menu, carrossel) em modo editor.
+          canvas: canvasRuntimeConfig(),
         },
       });
+    followSelectionInCarousels(ed);
+    // Zoom inicial já antes do 'load': mudar o zoom depois faria o canvas mexer-se e desligaria
+    // a seleção por clique precisamente quando o utilizador começa a editar.
+    fitZoom(ed, container, 'desktop');
     // O fluxo de imagem do motor (duplo clique, largar bloco) abre o diálogo do Bolt IA.
     ed.on('command:run:before:core:open-assets', (data: { options: { abort?: boolean; target?: Component } }) => {
       data.options.abort = true;
@@ -160,7 +185,12 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
         window.clearTimeout(timer);
         timer = window.setTimeout(() => void queue.flush(), AUTOSAVE_MS);
       });
-      setEditor(ed);
+      // Pronto só quando a seleção por clique está ativa: o motor desliga-a enquanto ajusta o canvas.
+      const ready = () => {
+        if (!disposed) setEditor(ed);
+      };
+      if (ed.Commands.isActive(SELECT_COMMAND)) ready();
+      else ed.once(`command:run:${SELECT_COMMAND}`, ready);
     });
     return () => {
       disposed = true;
@@ -200,6 +230,13 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
     };
   }, [saveNow]);
 
+  // Documento para o template: o que está no editor agora, com referências duráveis das imagens.
+  const templateSnapshot = useCallback(async () => {
+    if (!editor) throw new Error('O editor ainda não está pronto.');
+    await syncEditing(editor);
+    return urls.forStorage(getProjectData(editor));
+  }, [editor, urls]);
+
   const goBack = async () => {
     await saveNow();
     const s = queueRef.current?.currentState;
@@ -217,13 +254,7 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
   useEffect(() => {
     const host = canvasRef.current;
     if (!editor || !host) return;
-    const fit = () => {
-      const frameWidth = parseInt(deviceById(device).width, 10) || 1280;
-      const available = host.clientWidth - 48;
-      const zoom = Math.max(25, Math.min(100, Math.floor((available / frameWidth) * 100)));
-      host.style.setProperty('--bolt-zoom', String(zoom / 100));
-      editor.Canvas.setZoom(zoom);
-    };
+    const fit = () => fitZoom(editor, host, device);
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(host);
@@ -304,6 +335,9 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
           <span className="save-dot" aria-hidden="true" />
           {editor ? saveLabel(saveState, mode) : 'A preparar o editor…'}
         </span>
+        <Button data-testid="save-as-template" disabled={!editor} onClick={() => setSavingTemplate(true)}>
+          <LayoutTemplate aria-hidden="true" /> Guardar como template
+        </Button>
         <Button variant="primary" data-testid="save" disabled={!editor || saveState === 'saving' || saveState === 'conflict'} onClick={() => void saveNow()}>
           <Save aria-hidden="true" /> Guardar
         </Button>
@@ -340,6 +374,7 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
             </div>
           </div>
         )}
+        {editor && <FormNotice editor={editor} />}
         {editor ? <ContextBar editor={editor} /> : <div className="context-bar" />}
         <div className="canvas-wrap">
           <div className="canvas-host" ref={canvasRef} data-testid="canvas" />
@@ -367,6 +402,15 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
           onClose={() => setImageTarget(null)}
         />
       )}
+
+      <SaveTemplateDialog
+        open={savingTemplate}
+        onClose={() => setSavingTemplate(false)}
+        snapshot={templateSnapshot}
+        projectId={doc.projectId}
+        projectName={savedName}
+        templateRef={summary.templateId}
+      />
 
       <Modal
         open={leaving}
@@ -453,6 +497,19 @@ function ContextBar({ editor }: { editor: Editor }) {
       <Button variant="ghost" data-testid="delete" disabled={!parent} onClick={() => remove(editor, id)}>
         <Trash2 aria-hidden="true" /> Eliminar
       </Button>
+    </div>
+  );
+}
+
+/** Formulários importados não têm envio: dizê-lo claramente enquanto se edita. */
+function FormNotice({ editor }: { editor: Editor }) {
+  useEditorTick(editor);
+  const wrapper = editor.getWrapper();
+  const hasForm = Boolean(wrapper && (wrapper.findType('bolt-input').length > 0 || wrapper.find('form, input, textarea, select').length > 0));
+  if (!hasForm) return null;
+  return (
+    <div className="editor-notice" role="note" data-testid="editor-form-notice">
+      <AlertTriangle aria-hidden="true" /> Esta página tem campos de formulário sem integração de envio configurada: nada é enviado nem subscrito.
     </div>
   );
 }

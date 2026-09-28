@@ -97,6 +97,11 @@ test('template → projeto → editar → guardar → lista → reabrir mantém 
   const navButton = frame(page).locator('nav a[data-bolt-type="button"]');
   await expect(navButton).toHaveText('Falar connosco');
   await expect(navButton).toHaveAttribute('href', 'mailto:ola@exemplo.pt');
+  // Novo separador: marcar logo a seguir a confirmar o destino com Enter.
+  const newTab = page.getByLabel('Abrir num novo separador');
+  await newTab.check();
+  await expect(newTab).toBeChecked();
+  await expect(navButton).toHaveAttribute('target', '_blank');
 
   // 7. Substituir a imagem do hero por um ficheiro carregado.
   await frame(page).locator('img.nb-hero-img').first().click();
@@ -131,6 +136,19 @@ test('template → projeto → editar → guardar → lista → reabrir mantém 
   // 11. E também depois de recarregar a página (F5).
   await page.reload();
   await expectEdits(page);
+
+  // 12. A opção aparece marcada ao reabrir, desmarca-se pela interface e isso também persiste.
+  await frame(page).locator('nav a[data-bolt-type="button"]').click();
+  await expect(page.getByTestId('selected-name')).toHaveText('Botão');
+  const reopenedNewTab = page.getByLabel('Abrir num novo separador');
+  await expect(reopenedNewTab).toBeChecked();
+  await reopenedNewTab.uncheck();
+  await expect(reopenedNewTab).not.toBeChecked();
+  await expect(frame(page).locator('nav a[data-bolt-type="button"]')).not.toHaveAttribute('target', /.*/);
+  await saveAndConfirm(page);
+  await page.reload();
+  await expect(frame(page).locator('nav a[data-bolt-type="button"]')).not.toHaveAttribute('target', /.*/);
+  await expect(frame(page).locator('nav a[data-bolt-type="button"]')).toHaveAttribute('href', 'mailto:ola@exemplo.pt');
 });
 
 async function expectEdits(page: Page) {
@@ -140,6 +158,7 @@ async function expectEdits(page: Page) {
   await expect(frame(page).getByText('Ver como funciona', { exact: true })).toHaveCount(1);
   await expect(frame(page).locator('.nb-menu a')).toHaveText(['Recursos', 'Clientes', 'Como funciona']);
   await expect(frame(page).locator('nav a[data-bolt-type="button"]')).toHaveAttribute('href', 'mailto:ola@exemplo.pt');
+  await expect(frame(page).locator('nav a[data-bolt-type="button"]')).toHaveAttribute('target', '_blank');
   await expect(frame(page).locator('img.nb-hero-img').first()).toHaveAttribute('src', /^data:image\/png;base64,/);
 }
 
@@ -160,6 +179,35 @@ test('usar um template cria uma cópia: editar um projeto não altera o template
 
   await page.goto('/');
   await expect(page.getByTestId('project-card')).toHaveCount(2);
+});
+
+test('o primeiro clique no canvas, logo que o editor está pronto, seleciona o elemento', async ({ page }) => {
+  // Regressão: o ajuste de zoom depois do carregamento desligava a seleção por ~300 ms.
+  for (const index of [0, 1]) {
+    await createFromTemplate(page, index, `Primeiro clique ${index}`);
+    await frame(page).locator('img').nth(1).click();
+    await expect(page.getByTestId('selected-name')).toHaveText(/Imagem|Logótipo \(imagem\)/);
+  }
+});
+
+test('com fotogramas lentos, marcar e desmarcar «novo separador» reflete-se logo e no modelo', async ({ page }) => {
+  // Regressão: o painel só relia o modelo no fotograma seguinte; com o browser ocupado, o clique
+  // no checkbox parecia não ter efeito. Aqui cada fotograma atrasa 400 ms de propósito.
+  await page.addInitScript(() => {
+    const raf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (cb) => window.setTimeout(() => raf(cb), 400);
+  });
+  await createFromTemplate(page, 0, 'Fotogramas lentos');
+  await frame(page).getByText('Pedir demonstração').click();
+  await expect(page.getByTestId('selected-name')).toHaveText('Botão');
+  await page.getByTestId('prop-href').fill('https://exemplo.pt');
+  await page.getByTestId('prop-href').press('Enter');
+  const newTab = page.getByLabel('Abrir num novo separador');
+  await newTab.check();
+  await expect(frame(page).locator('nav a[data-bolt-type="button"]')).toHaveAttribute('target', '_blank');
+  await newTab.uncheck();
+  await expect(frame(page).locator('nav a[data-bolt-type="button"]')).not.toHaveAttribute('target', /.*/);
+  await expect(frame(page).locator('nav a[data-bolt-type="button"]')).toHaveAttribute('href', 'https://exemplo.pt');
 });
 
 test('logótipo em imagem continua imagem no template Vértice', async ({ page }) => {

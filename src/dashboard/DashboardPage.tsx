@@ -1,4 +1,4 @@
-import { FilePlus2, FolderOpen, Info, LayoutTemplate, MoreHorizontal, Pencil, RefreshCw, Trash2 } from 'lucide-react';
+import { FilePlus2, FileUp, FolderOpen, Info, LayoutTemplate, MoreHorizontal, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, projectPath } from '../app/router';
 import { resolveForDisplay } from '../assets/resolveForDisplay';
@@ -41,6 +41,10 @@ export function DashboardPage() {
         </div>
         <div className="page-actions">
           {mode === 'local' && state.status === 'ready' && state.projects.length > 0 && <ExportLocalButton />}
+          <Link to="/importar" className="btn btn-lg" data-testid="open-import">
+            <FileUp aria-hidden="true" />
+            Importar
+          </Link>
           <Link to="/templates" className="btn btn-primary btn-lg">
             <FilePlus2 aria-hidden="true" />
             Novo projeto

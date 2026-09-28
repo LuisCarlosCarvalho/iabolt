@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { assetPath, collectAssetRefs } from '../../src/assets/assetRefs';
 
 /**
  * Contas e limpeza dos testes contra o Supabase real. Usado por `tests/server` e `tests/e2e-server`.
@@ -48,19 +49,24 @@ export async function cleanupProjects(who: Who, projectIds: readonly string[]): 
   const client = await signedIn(who);
   try {
     for (const id of projectIds) {
-      const { data, error } = await client.from('projects').select('workspace_id, name').eq('id', id).maybeSingle();
+      const { data, error } = await client.from('projects').select('workspace_id, name, project_data').eq('id', id).maybeSingle();
       if (error || !data) {
         problems.push(`${id}: não encontrado (${error?.message ?? 'sem acesso'})`);
         continue;
       }
-      const row: { workspace_id: string; name: string } = data;
+      const row: { workspace_id: string; name: string; project_data: unknown } = data;
       if (!row.name.startsWith('[teste automático]')) {
         problems.push(`${id}: ignorado, não é um projeto de teste`);
         continue;
       }
       const folder = `${row.workspace_id}/${id}`;
       const listed = await client.storage.from(BUCKET).list(folder, { limit: 1000 });
-      const files = (listed.data ?? []).map((f) => `${folder}/${f.name}`);
+      // Imagens na pasta do projeto (formato antigo) e as da biblioteca do workspace que este
+      // documento de teste referencia (formato atual: <workspace>/library/…).
+      const library = collectAssetRefs(row.project_data)
+        .map(assetPath)
+        .filter((path) => path.startsWith(`${row.workspace_id}/library/`));
+      const files = [...(listed.data ?? []).map((f) => `${folder}/${f.name}`), ...library];
       if (files.length > 0) {
         const removed = await client.storage.from(BUCKET).remove(files);
         if (removed.error) problems.push(`${id}: imagens não removidas (${removed.error.message})`);

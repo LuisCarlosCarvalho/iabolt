@@ -4,15 +4,18 @@ import { projectDataSchema, type GrapesProjectData } from '../contract/boltDocum
  * Imagens privadas no servidor: o documento guarda uma referência estável
  * (`bolt-asset:<caminho no Storage>`), nunca um URL temporário. Para mostrar, a referência
  * é trocada por um URL assinado; ao gravar, o URL volta a ser a referência.
+ * As referências podem aparecer como valor inteiro (src de imagem) ou dentro de CSS
+ * (`url("bolt-asset:…")` em imagens de fundo).
  */
 export const ASSET_REF_PREFIX = 'bolt-asset:';
+const REF_PATTERN = /bolt-asset:[A-Za-z0-9._\-/]+/g;
 
 export const isAssetRef = (v: string): boolean => v.startsWith(ASSET_REF_PREFIX);
 export const assetRef = (path: string): string => ASSET_REF_PREFIX + path;
 export const assetPath = (ref: string): string => ref.slice(ASSET_REF_PREFIX.length);
 
-/** Cópia profunda de dados JSON, trocando strings exatas segundo `swap`. */
-function mapStrings(value: unknown, swap: (s: string) => string | undefined): unknown {
+/** Cópia profunda de dados JSON, trocando strings segundo `swap`. */
+export function mapStrings(value: unknown, swap: (s: string) => string | undefined): unknown {
   const walk = (v: unknown): unknown => {
     if (typeof v === 'string') return swap(v) ?? v;
     if (Array.isArray(v)) return v.map(walk);
@@ -26,10 +29,29 @@ function mapStrings(value: unknown, swap: (s: string) => string | undefined): un
   return walk(value);
 }
 
+/** Troca, dentro de cada string, as ocorrências das chaves do mapa (valor inteiro ou dentro de url()). */
+export function replaceAll(value: unknown, map: ReadonlyMap<string, string>): unknown {
+  if (!map.size) return value;
+  const keys = [...map.keys()].sort((a, b) => b.length - a.length);
+  return mapStrings(value, (s) => {
+    const whole = map.get(s);
+    if (whole !== undefined) return whole;
+    let out = s;
+    let changed = false;
+    for (const k of keys) {
+      if (out.includes(k)) {
+        out = out.split(k).join(map.get(k) ?? k);
+        changed = true;
+      }
+    }
+    return changed ? out : undefined;
+  });
+}
+
 export function collectAssetRefs(data: unknown): string[] {
   const refs = new Set<string>();
   mapStrings(data, (s) => {
-    if (isAssetRef(s)) refs.add(s);
+    for (const m of s.matchAll(REF_PATTERN)) refs.add(m[0]);
     return undefined;
   });
   return [...refs];
@@ -47,11 +69,11 @@ export class AssetUrlMap {
 
   /** Documento para mostrar: referências trocadas por URLs (as não resolvidas ficam como estão). */
   forDisplay(data: GrapesProjectData): GrapesProjectData {
-    return this.toUrl.size ? projectDataSchema.parse(mapStrings(data, (s) => this.toUrl.get(s))) : data;
+    return this.toUrl.size ? projectDataSchema.parse(replaceAll(data, this.toUrl)) : data;
   }
 
   /** Documento para gravar: URLs temporários voltam a ser referências estáveis. */
   forStorage(data: GrapesProjectData): GrapesProjectData {
-    return this.toRef.size ? projectDataSchema.parse(mapStrings(data, (s) => this.toRef.get(s))) : data;
+    return this.toRef.size ? projectDataSchema.parse(replaceAll(data, this.toRef)) : data;
   }
 }

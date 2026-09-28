@@ -37,9 +37,8 @@ function usePrefersReducedMotion(): boolean {
 }
 
 /**
- * Vídeo de fundo. Tenta tocar com som (como a referência); se o browser o impedir, toca
- * sem som e o botão permite ativar o áudio. Com movimento reduzido não há vídeo nem som:
- * fica a imagem de fundo.
+ * Vídeo de fundo. Começa SEMPRE sem som; o áudio só é ativado pelo utilizador, no botão.
+ * Com movimento reduzido não há vídeo nem som: fica a imagem de fundo.
  */
 function BackgroundVideo() {
   const ref = useRef<HTMLVideoElement>(null);
@@ -48,28 +47,23 @@ function BackgroundVideo() {
   useEffect(() => {
     const v = ref.current;
     if (!v) return;
+    v.muted = true;
     v.volume = 0.5;
-    v.muted = false;
-    v.play()
-      .then(() => setAudioOn(true))
-      .catch(() => {
-        v.muted = true;
-        setAudioOn(false);
-        v.play().catch(() => undefined);
-      });
+    v.play().catch(() => undefined);
   }, []);
 
   const toggle = () => {
     const v = ref.current;
     if (!v) return;
-    v.muted = !v.muted;
-    setAudioOn(!v.muted);
+    const next = !audioOn;
+    v.muted = !next;
+    setAudioOn(next);
     if (v.paused) v.play().catch(() => undefined);
   };
 
   return (
     <>
-      <video ref={ref} className="login-video" loop playsInline preload="auto" poster={POSTER} aria-hidden="true" tabIndex={-1}>
+      <video ref={ref} className="login-video" autoPlay muted loop playsInline preload="auto" poster={POSTER} aria-hidden="true" tabIndex={-1}>
         <source src={VIDEO} type="video/mp4" />
       </video>
       <div className="login-veil" aria-hidden="true" />
@@ -81,16 +75,18 @@ function BackgroundVideo() {
   );
 }
 
-/** Entrada com email e palavra-passe (Supabase Auth). Só existe em modo servidor. */
+/**
+ * Entrada com email e palavra-passe (Supabase Auth). Só existe em modo servidor.
+ * Acesso restrito à equipa: as contas são criadas pela administração (Supabase → Users),
+ * por isso o ecrã não oferece registo, tal como a referência visual.
+ */
 export function LoginPage({ client }: { client: SupabaseClient }) {
   const reducedMotion = usePrefersReducedMotion();
-  const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
   // Guarda síncrona: um duplo clique não envia dois pedidos antes de o estado re-renderizar.
   const inFlight = useRef(false);
 
@@ -100,16 +96,9 @@ export function LoginPage({ client }: { client: SupabaseClient }) {
     inFlight.current = true;
     setBusy(true);
     setError(null);
-    setInfo(null);
     try {
-      if (mode === 'sign-in') {
-        const { error: err } = await client.auth.signInWithPassword({ email, password });
-        if (err) throw err;
-      } else {
-        const { data, error: err } = await client.auth.signUp({ email, password });
-        if (err) throw err;
-        if (!data.session) setInfo('Conta criada. Confirme o endereço no email que enviámos e depois entre.');
-      }
+      const { error: err } = await client.auth.signInWithPassword({ email, password });
+      if (err) throw err;
     } catch (err) {
       setError(authErrorMessage(err));
     } finally {
@@ -118,21 +107,14 @@ export function LoginPage({ client }: { client: SupabaseClient }) {
     }
   };
 
-  const switchMode = () => {
-    setMode(mode === 'sign-in' ? 'sign-up' : 'sign-in');
-    setError(null);
-    setInfo(null);
-  };
-
-  const signIn = mode === 'sign-in';
   return (
     <main className="login">
       {reducedMotion && <div className="login-veil" aria-hidden="true" />}
       <div className="login-card">
         <div className="login-head">
-          <h1 className="sr-only">{signIn ? 'Entrar no Bolt IA' : 'Criar conta no Bolt IA'}</h1>
+          <h1 className="sr-only">Entrar no Bolt IA</h1>
           <img className="login-logo" src={LOGO} alt="Blue Bolt IA studio" width={1233} height={502} draggable={false} />
-          <p className="login-sub">{signIn ? 'Aceda ao seu estúdio' : 'Crie a sua conta'}</p>
+          <p className="login-sub">Aceda ao seu estúdio</p>
         </div>
         <form className="login-form" onSubmit={(e) => void submit(e)} aria-busy={busy}>
           <div className="login-field">
@@ -161,9 +143,8 @@ export function LoginPage({ client }: { client: SupabaseClient }) {
                 id="login-password"
                 className="login-input"
                 type={showPassword ? 'text' : 'password'}
-                autoComplete={signIn ? 'current-password' : 'new-password'}
+                autoComplete="current-password"
                 placeholder="••••••••"
-                minLength={8}
                 required
                 value={password}
                 aria-invalid={error ? true : undefined}
@@ -186,21 +167,13 @@ export function LoginPage({ client }: { client: SupabaseClient }) {
               {error}
             </p>
           )}
-          {info && (
-            <p className="login-message login-message-info" role="status">
-              {info}
-            </p>
-          )}
           <button type="submit" className="login-submit" disabled={busy}>
             {busy && <span className="login-spinner" aria-hidden="true" />}
-            {busy ? (signIn ? 'A entrar…' : 'A criar conta…') : signIn ? 'Entrar no estúdio' : 'Criar conta'}
+            {busy ? 'A entrar…' : 'Entrar no estúdio'}
           </button>
         </form>
         <div className="login-foot">
           <p>Acesso restrito à equipa Blue Bolt</p>
-          <button type="button" className="login-switch" onClick={switchMode} disabled={busy}>
-            {signIn ? 'Ainda não tem conta? Criar conta' : 'Já tem conta? Entrar'}
-          </button>
         </div>
       </div>
       {/* Depois do cartão no DOM: o foco começa no email; visualmente fica atrás e no canto. */}

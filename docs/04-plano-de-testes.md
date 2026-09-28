@@ -33,6 +33,8 @@ Comandos: `npm test` (unitários e base de dados), `npm run test:e2e` (browser) 
   - página em branco com os 6 blocos;
   - edição direta no canvas, desfazer e refazer;
   - arrastar na árvore, com recusa de destino inválido;
+  - primeiro clique no canvas logo que o editor está pronto;
+  - «novo separador» com fotogramas lentos (marcar e desmarcar refletem-se logo);
   - Dashboard: mudar o nome e remover;
   - conflito entre dois separadores;
   - erro de gravação sem «guardado» e confirmação ao sair;
@@ -40,12 +42,12 @@ Comandos: `npm test` (unitários e base de dados), `npm run test:e2e` (browser) 
   - projeto inexistente.
 - `tests/e2e/poc.spec.ts`: prova da Fase 0, na rota `/prova-tecnica`.
 
-## Contra o Supabase real (escritos; por executar até haver projeto, `docs/07`)
+## Contra o Supabase real (executados pelo utilizador a 28/09/2026: 9/9 e 6/6)
 
 - `npm run test:server` → `tests/server/supabase.api.test.ts` (9 casos, API real com as contas de teste A e B).
 - `npm run test:e2e:server` → `tests/e2e-server/server.spec.ts` (6 casos, browser real).
 
-Continua manual: criar uma conta pelo ecrã e confirmar o email.
+As contas são criadas pela administração em Supabase → Authentication → Users; o ecrã não oferece registo.
 
 Estes testes cobrem, contra o projeto Supabase real:
 

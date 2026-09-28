@@ -5,6 +5,8 @@ import { ENGINE_VERSION } from '../engine/createBoltEditor';
 import { IndexedDbRepository } from '../persistence/indexedDbRepository';
 import type { PersistenceMode, ProjectCatalog } from '../persistence/repository';
 import { SupabaseRepository } from '../persistence/supabaseRepository';
+import { SupabaseTemplateLibrary } from '../library/supabaseTemplateLibrary';
+import { IndexedDbTemplateLibrary, type ImportLog, type TemplateLibrary } from '../library/templateLibrary';
 
 /**
  * Escolha do destino de persistência. Há um único destino ativo por sessão:
@@ -27,6 +29,9 @@ export interface AppServices {
   mode: PersistenceMode;
   catalog: ProjectCatalog;
   assets: AssetStore;
+  /** Templates da equipa (mesmo destino que os projetos). */
+  library: TemplateLibrary;
+  imports: ImportLog;
   /** Só em modo servidor. */
   auth: { client: SupabaseClient; email: string } | null;
 }
@@ -45,7 +50,10 @@ export function persistenceLabel(mode: PersistenceMode): string {
 
 let localServices: AppServices | null = null;
 function getLocalServices(): AppServices {
-  localServices ??= { mode: 'local', catalog: new IndexedDbRepository(ENGINE_VERSION), assets: new LocalAssetStore(), auth: null };
+  if (!localServices) {
+    const library = new IndexedDbTemplateLibrary();
+    localServices = { mode: 'local', catalog: new IndexedDbRepository(ENGINE_VERSION), assets: new LocalAssetStore(), library, imports: library, auth: null };
+  }
   return localServices;
 }
 
@@ -57,8 +65,12 @@ export function ServerServicesProvider({ client, session, children }: { client: 
   // Instâncias estáveis: a renovação do token não deve recriar o repositório nem reabrir o editor.
   const catalog = useMemo(() => new SupabaseRepository(client, ENGINE_VERSION), [client]);
   const assets = useMemo(() => new SupabaseAssetStore(client), [client]);
+  const library = useMemo(() => new SupabaseTemplateLibrary(client, ENGINE_VERSION), [client]);
   const email = session.user.email ?? '';
-  const value = useMemo<AppServices>(() => ({ mode: 'server', catalog, assets, auth: { client, email } }), [catalog, assets, client, email]);
+  const value = useMemo<AppServices>(
+    () => ({ mode: 'server', catalog, assets, library, imports: library, auth: { client, email } }),
+    [catalog, assets, library, client, email],
+  );
   return <ServicesContext.Provider value={value}>{children}</ServicesContext.Provider>;
 }
 

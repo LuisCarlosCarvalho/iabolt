@@ -1,9 +1,10 @@
 import { useSyncExternalStore, type AnchorHTMLAttributes, type MouseEvent } from 'react';
 
-/** Router mínimo sobre a History API. Rotas: `/`, `/templates`, `/projetos/:id`, `/prova-tecnica`. */
+/** Router mínimo sobre a History API. Rotas: `/`, `/templates`, `/importar`, `/projetos/:id`, `/prova-tecnica`. */
 export type Route =
   | { name: 'dashboard' }
   | { name: 'templates' }
+  | { name: 'import' }
   | { name: 'editor'; projectId: string }
   | { name: 'poc' }
   | { name: 'not-found'; path: string };
@@ -25,6 +26,7 @@ export function parseRoute(path: string): Route {
   const clean = path.replace(/\/+$/, '') || '/';
   if (clean === '/') return { name: 'dashboard' };
   if (clean === '/templates') return { name: 'templates' };
+  if (clean === '/importar') return { name: 'import' };
   if (clean === '/prova-tecnica') return { name: 'poc' };
   const m = /^\/projetos\/([^/]+)$/.exec(clean);
   if (m?.[1]) return { name: 'editor', projectId: decodeURIComponent(m[1]) };

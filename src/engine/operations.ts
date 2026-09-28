@@ -41,8 +41,14 @@ export function selectParent(editor: Editor): Component | undefined {
 /** Ligações e botões (`bolt-button` estende `link`; `Component.is` compara o tipo exato). */
 export const isLink = (c: Component): boolean => c.is('link') || c.is('bolt-button');
 
-/** Elementos cujo conteúdo é texto editável. */
-export const isTextLike = (c: Component): boolean => c.is('text') || isLink(c);
+/** Bloco inteiro clicável (`<a>` com outros elementos lá dentro). Tem destino, não texto próprio. */
+export const isLinkBox = (c: Component): boolean => c.is('bolt-link-box');
+
+/** Elementos com destino (href) editável. */
+export const hasHref = (c: Component): boolean => isLink(c) || isLinkBox(c);
+
+/** Elementos cujo conteúdo é texto editável (inclui o título de um item de acordeão). */
+export const isTextLike = (c: Component): boolean => c.is('text') || c.is('bolt-accordion-title') || isLink(c);
 
 /** Verdadeiro quando o conteúdo é só texto (sem formatação nem elementos filhos). */
 export function isPlainText(c: Component): boolean {
@@ -67,11 +73,106 @@ export interface LinkPatch {
 /** Texto e destino de ligações e botões. */
 export function setLink(editor: Editor, id: string, patch: LinkPatch): void {
   const c = requireById(editor, id);
-  if (!isLink(c)) throw new Error(`Componente ${id} não é uma ligação`);
-  if (patch.text !== undefined) c.components(asTextNode(patch.text));
+  if (!hasHref(c)) throw new Error(`Componente ${id} não é uma ligação`);
+  if (patch.text !== undefined) {
+    if (!isLink(c)) throw new Error(`O bloco de ligação ${id} não tem texto próprio`);
+    c.components(asTextNode(patch.text));
+  }
   if (patch.href !== undefined) c.addAttributes({ href: patch.href });
   if (patch.newTab === true) c.addAttributes({ target: '_blank', rel: 'noopener noreferrer' });
   if (patch.newTab === false) c.removeAttributes(['target', 'rel']);
+}
+
+export const TEXT_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p'] as const;
+export type TextTag = (typeof TEXT_TAGS)[number];
+
+/** Nível do título (h1–h6) ou parágrafo. Só para textos cujo elemento já é um destes. */
+export function textTag(c: Component): TextTag | null {
+  const tag = String(c.get('tagName') ?? '').toLowerCase();
+  return c.is('text') ? (TEXT_TAGS.find((t) => t === tag) ?? null) : null;
+}
+
+export function setTextTag(editor: Editor, id: string, tag: TextTag): void {
+  const c = requireById(editor, id);
+  if (!textTag(c)) throw new Error(`Componente ${id} não é um título nem um parágrafo`);
+  c.set('tagName', tag);
+}
+
+export interface InputPatch {
+  placeholder?: string;
+  name?: string;
+  type?: 'text' | 'email' | 'tel' | 'url' | 'number';
+  required?: boolean;
+}
+
+/** Atributos de um campo de formulário. O envio não é configurado aqui (sem integração). */
+export function setInput(editor: Editor, id: string, patch: InputPatch): void {
+  const c = requireById(editor, id);
+  if (!c.is('bolt-input')) throw new Error(`Componente ${id} não é um campo de formulário`);
+  const { required, ...attrs } = patch;
+  const clean = Object.fromEntries(Object.entries(attrs).filter(([, v]) => v !== undefined));
+  if (Object.keys(clean).length) c.addAttributes(clean);
+  if (required === true) c.addAttributes({ required: true });
+  if (required === false) c.removeAttributes(['required']);
+}
+
+export interface CarouselBreakpoint {
+  min: number;
+  perView: number;
+  gap: number;
+}
+
+export interface CarouselConfig {
+  breakpoints: CarouselBreakpoint[];
+  loop?: boolean;
+  autoplay?: { delay: number } | null;
+  speed?: number;
+  easing?: 'ease' | 'linear';
+  pagination?: boolean;
+  pauseOnHover?: boolean;
+  /** Movimento contínuo em sentido inverso. */
+  reverse?: boolean;
+}
+
+const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+
+/** Configuração do carrossel, lida do atributo `data-bolt-carousel` (JSON próprio do Bolt IA). */
+export function carouselConfig(c: Component): CarouselConfig {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(String(c.getAttributes()['data-bolt-carousel'] ?? '{}'));
+  } catch {
+    raw = {};
+  }
+  const r = typeof raw === 'object' && raw !== null ? raw : {};
+  const get = (k: string): unknown => (k in r ? Object.getOwnPropertyDescriptor(r, k)?.value : undefined);
+  const bps = get('breakpoints');
+  const breakpoints = (Array.isArray(bps) ? bps : [])
+    .filter((b): b is object => typeof b === 'object' && b !== null)
+    .map((b) => {
+      const v = (k: string): unknown => Object.getOwnPropertyDescriptor(b, k)?.value;
+      return { min: num(v('min'), 0), perView: Math.max(1, num(v('perView'), 1)), gap: Math.max(0, num(v('gap'), 0)) };
+    });
+  const autoplay = get('autoplay');
+  const delay = typeof autoplay === 'object' && autoplay !== null ? Object.getOwnPropertyDescriptor(autoplay, 'delay')?.value : undefined;
+  return {
+    breakpoints: breakpoints.length ? breakpoints : [{ min: 0, perView: 1, gap: 0 }],
+    loop: get('loop') === true,
+    autoplay: typeof delay === 'number' ? { delay } : null,
+    speed: num(get('speed'), 300),
+    easing: get('easing') === 'linear' ? 'linear' : 'ease',
+    pagination: get('pagination') !== false,
+    pauseOnHover: get('pauseOnHover') !== false,
+    reverse: get('reverse') === true,
+  };
+}
+
+export function setCarouselConfig(editor: Editor, id: string, patch: Partial<CarouselConfig>): void {
+  const c = requireById(editor, id);
+  if (!c.is('bolt-carousel')) throw new Error(`Componente ${id} não é um carrossel`);
+  const next = { ...carouselConfig(c), ...patch };
+  next.breakpoints = [...next.breakpoints].sort((a, b) => a.min - b.min);
+  c.addAttributes({ 'data-bolt-carousel': JSON.stringify(next) });
 }
 
 export interface ImagePatch {

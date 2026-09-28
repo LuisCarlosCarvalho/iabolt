@@ -5,12 +5,12 @@ Todos os formatos passam pelo mesmo pipeline: receber → identificar → valida
 | Formato | Deteção | Adaptador | Fase | Estado |
 | --- | --- | --- | --- | --- |
 | JSON Bolt IA | `boltSchemaVersion` | validar + migrar versões conhecidas + ids/permissões novos | 3 | pendente |
-| JSON GrapesJS Core | `pages[].frames[].component` | validar tipos contra os registados | 3 | pendente |
-| JSON GrapesJS Studio (`.grapesjs`) | como acima + `custom.projectType`, `custom.plugins`, tipos Studio | mapear os tipos Studio para tipos Bolt; os não suportados ficam preservados e assinalados | 3 | pendente |
+| JSON GrapesJS Core | `pages[].frames[].component` | validar tipos contra os registados | 3 | implementado e testado (mesmo adaptador do Studio) |
+| JSON GrapesJS Studio (`.grapesjs`) | como acima + `custom.projectType`, `custom.plugins`, tipos Studio | mapear os tipos Studio para tipos Bolt; os não suportados ficam preservados e assinalados | 3 | implementado e testado com a amostra (`docs/08`) |
 | HTML/CSS colado | MIME/parse DOM | parser HTML/CSS real (nunca regex) | 3 | pendente |
 | ZIP estático | manifesto com `.html` | resolver caminhos, `url()`, `srcset`, fontes, várias páginas | 3 | pendente |
 | ZIP código-fonte (package.json, .php, .pug…) | manifesto | **diagnóstico apenas**; pedir exportação estática | 3 | pendente |
-| Elementor (`content`, `version`, `type`) | chaves de topo | adaptador por widget/versão | 3 | pendente |
+| Elementor (`content`, `version`, `type`) | chaves de topo | adaptador por widget/versão | 3 | implementado para containers e para os widgets da amostra (heading, text-editor, image, image-box, button, icon-list, image-carousel, nested-accordion, html só com CSS); outros widgets ficam «não suportado» |
 | JSON desconhecido | nenhuma regra | diagnóstico; nunca «projeto válido» | 3 | pendente |
 
 ## Evidência das amostras fornecidas (lidas a 28/09/2026, só leitura)
@@ -30,4 +30,4 @@ Todos os formatos passam pelo mesmo pipeline: receber → identificar → valida
 - Riscos vistos: `custom_css` com `!important` no botão (Pro); widget `html` com `<style>` e possivelmente script (conteúdo não confiável); imagens em domínio WordPress externo; fontes Google (Bricolage Grotesque) por resolver.
 - Prioridade do adaptador: heading, text-editor, image, button, container → icon-list, image-box → carrossel/accordion (com modelo e runtime próprios) → html (sandbox + relatório).
 
-Não há percentagens de fidelidade. A classificação (compatível/parcial/incompatível) será feita por elemento, com evidência.
+Resultado da implementação e validação: `docs/08`. Não há percentagens de fidelidade. A classificação (compatível/parcial/incompatível) será feita por elemento, com evidência.

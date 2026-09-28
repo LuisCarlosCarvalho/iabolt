@@ -1,9 +1,25 @@
 import type { Component, Editor } from 'grapesjs';
-import { AlignCenter, AlignJustify, AlignLeft, AlignRight, ImageUp, RotateCcw } from 'lucide-react';
-import { useState, type KeyboardEvent, type ReactNode } from 'react';
+import { AlertTriangle, AlignCenter, AlignJustify, AlignLeft, AlignRight, ImageUp, RotateCcw } from 'lucide-react';
+import { useReducer, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Button, IconButton } from '../app/ui';
 import { contentHint, displayName, isLogo } from '../engine/labels';
-import { isLink, isPlainText, setImage, setLink, setText } from '../engine/operations';
+import {
+  carouselConfig,
+  hasHref,
+  isLink,
+  isLinkBox,
+  isPlainText,
+  setCarouselConfig,
+  setImage,
+  setInput,
+  setLink,
+  setText,
+  setTextTag,
+  TEXT_TAGS,
+  textTag,
+  type CarouselConfig,
+  type InputPatch,
+} from '../engine/operations';
 import { deviceById, getOwnStyle, setOwnStyle, type DeviceId, type EditableProp } from '../engine/styles';
 
 /** Valor calculado no canvas (para mostrar o efetivo quando o elemento não tem valor próprio). */
@@ -173,13 +189,22 @@ function ComponentProps({ editor, component: c, device, onReplaceImage }: { edit
   const id = c.getId();
   const isImage = c.is('image');
   const link = isLink(c);
-  const isText = c.is('text');
+  const isText = c.is('text') || c.is('bolt-accordion-title');
+  const tag = textTag(c);
   const plain = (isText || link) && isPlainText(c);
   const deviceLabel = deviceById(device).label;
+  // Os controlos leem o modelo do motor. Depois de cada alteração o painel volta a desenhar-se
+  // no próprio evento: sem isto, um controlo controlado (ex.: checkbox) mostrava o valor antigo
+  // até ao fotograma seguinte, e um clique podia parecer não ter efeito.
+  const [, refresh] = useReducer((n: number) => n + 1, 0);
+  const apply = (change: () => void) => {
+    change();
+    refresh();
+  };
   const ctx: StyleCtx = {
     own: getOwnStyle(editor, c, device),
     computed: computedStyle(c),
-    commit: (prop, value) => setOwnStyle(editor, c, device, { [prop]: value }),
+    commit: (prop, value) => apply(() => setOwnStyle(editor, c, device, { [prop]: value })),
   };
   const attrs = c.getAttributes();
   const hint = contentHint(c, 60);
@@ -197,27 +222,49 @@ function ComponentProps({ editor, component: c, device, onReplaceImage }: { edit
           {plain ? (
             <label className="field">
               <span>Texto</span>
-              <DraftInput label="Texto" testId="prop-text" multiline={!link} value={decodeHtml(c.getInnerHTML())} onCommit={(v) => (link ? setLink(editor, id, { text: v }) : setText(editor, id, v))} />
+              <DraftInput label="Texto" testId="prop-text" multiline={!link} value={decodeHtml(c.getInnerHTML())} onCommit={(v) => apply(() => (link ? setLink(editor, id, { text: v }) : setText(editor, id, v)))} />
               {!link && <span className="hint">Também pode clicar duas vezes no texto, no canvas, para escrever diretamente.</span>}
             </label>
           ) : (
             <p className="hint" style={{ margin: 0 }}>Este texto tem formatação. Clique duas vezes no canvas para o editar diretamente.</p>
           )}
-          {link && (
-            <>
-              <label className="field">
-                <span>Destino</span>
-                <DraftInput label="Destino" testId="prop-href" value={String(attrs.href ?? '')} placeholder="https://… ou #secção" onCommit={(v) => setLink(editor, id, { href: v.trim() })} />
-                <span className="hint">Endereço web, email (mailto:), telefone (tel:) ou âncora da página (#contacto).</span>
-              </label>
-              <label className="check">
-                <input type="checkbox" checked={attrs.target === '_blank'} onChange={(e) => setLink(editor, id, { newTab: e.target.checked })} />
-                Abrir num novo separador
-              </label>
-            </>
+          {tag && (
+            <label className="field">
+              <span>Tipo de texto</span>
+              <select
+                className="select"
+                data-testid="prop-tag"
+                value={tag}
+                onChange={(e) => {
+                  const next = TEXT_TAGS.find((t) => t === e.target.value);
+                  if (next) apply(() => setTextTag(editor, id, next));
+                }}
+              >
+                {TEXT_TAGS.map((t) => (
+                  <option key={t} value={t}>
+                    {t === 'p' ? 'Parágrafo' : `Título ${t.slice(1)}${t === 'h1' ? ' (principal)' : ''}`}
+                  </option>
+                ))}
+              </select>
+              <span className="hint">A página deve ter um só título principal (Título 1).</span>
+            </label>
+          )}
+          {link && hasHref(c) && (
+            <LinkTarget attrs={attrs} onHref={(v) => apply(() => setLink(editor, id, { href: v }))} onNewTab={(v) => apply(() => setLink(editor, id, { newTab: v }))} />
           )}
         </Section>
       )}
+
+      {isLinkBox(c) && (
+        <Section title="Ligação do bloco">
+          <p className="hint" style={{ margin: 0 }}>O bloco inteiro é clicável. Os textos e imagens lá dentro editam-se selecionando-os.</p>
+          <LinkTarget attrs={attrs} onHref={(v) => apply(() => setLink(editor, id, { href: v }))} onNewTab={(v) => apply(() => setLink(editor, id, { newTab: v }))} />
+        </Section>
+      )}
+
+      {c.is('bolt-input') && <InputSection attrs={attrs} onChange={(patch) => apply(() => setInput(editor, id, patch))} />}
+
+      {c.is('bolt-carousel') && <CarouselSection component={c} onChange={(patch) => apply(() => setCarouselConfig(editor, id, patch))} />}
 
       {isImage && (
         <Section title="Imagem">
@@ -228,7 +275,7 @@ function ComponentProps({ editor, component: c, device, onReplaceImage }: { edit
           </Button>
           <label className="field">
             <span>Texto alternativo</span>
-            <DraftInput label="Texto alternativo" testId="prop-alt" value={String(attrs.alt ?? '')} placeholder="Descreva a imagem para leitores de ecrã" onCommit={(v) => setImage(editor, id, { alt: v })} />
+            <DraftInput label="Texto alternativo" testId="prop-alt" value={String(attrs.alt ?? '')} placeholder="Descreva a imagem para leitores de ecrã" onCommit={(v) => apply(() => setImage(editor, id, { alt: v }))} />
           </label>
         </Section>
       )}
@@ -311,5 +358,114 @@ function ComponentProps({ editor, component: c, device, onReplaceImage }: { edit
         <span className="hint">Números sem unidade são píxeis. {device === 'desktop' ? 'Aplica-se a todos os ecrãs, salvo ajuste noutro dispositivo.' : `Aplica-se só a ecrãs de ${deviceLabel.toLowerCase()} ou menores.`}</span>
       </Section>
     </>
+  );
+}
+
+function LinkTarget({ attrs, onHref, onNewTab }: { attrs: Record<string, unknown>; onHref: (v: string) => void; onNewTab: (v: boolean) => void }) {
+  return (
+    <>
+      <label className="field">
+        <span>Destino</span>
+        <DraftInput label="Destino" testId="prop-href" value={String(attrs.href ?? '')} placeholder="https://… ou #secção" onCommit={(v) => onHref(v.trim())} />
+        <span className="hint">Endereço web, email (mailto:), telefone (tel:) ou âncora da página (#contacto).</span>
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={attrs.target === '_blank'} onChange={(e) => onNewTab(e.target.checked)} />
+        Abrir num novo separador
+      </label>
+    </>
+  );
+}
+
+const INPUT_TYPES: Array<[NonNullable<InputPatch['type']>, string]> = [
+  ['text', 'Texto'],
+  ['email', 'Email'],
+  ['tel', 'Telefone'],
+  ['url', 'Endereço web'],
+  ['number', 'Número'],
+];
+
+function InputSection({ attrs, onChange }: { attrs: Record<string, unknown>; onChange: (patch: InputPatch) => void }) {
+  const type = INPUT_TYPES.find(([t]) => t === attrs.type)?.[0] ?? 'text';
+  const required = attrs.required === true || attrs.required === 'true' || attrs.required === '';
+  return (
+    <Section title="Campo de formulário">
+      <p className="form-warning" role="note" data-testid="form-no-integration">
+        <AlertTriangle aria-hidden="true" /> Sem integração de envio configurada: o campo é editável, mas nada é enviado nem subscrito.
+      </p>
+      <label className="field">
+        <span>Texto de exemplo</span>
+        <DraftInput label="Texto de exemplo" testId="prop-placeholder" value={String(attrs.placeholder ?? '')} onCommit={(v) => onChange({ placeholder: v })} />
+      </label>
+      <div className="row2">
+        <label className="field">
+          <span>Tipo</span>
+          <select className="select" value={type} onChange={(e) => onChange({ type: INPUT_TYPES.find(([t]) => t === e.target.value)?.[0] ?? 'text' })}>
+            {INPUT_TYPES.map(([t, l]) => (
+              <option key={t} value={t}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Nome do campo</span>
+          <DraftInput label="Nome do campo" value={String(attrs.name ?? '')} placeholder="email" onCommit={(v) => onChange({ name: v.trim() })} />
+        </label>
+      </div>
+      <label className="check">
+        <input type="checkbox" checked={required} onChange={(e) => onChange({ required: e.target.checked })} />
+        Obrigatório
+      </label>
+    </Section>
+  );
+}
+
+function CarouselSection({ component, onChange }: { component: Component; onChange: (patch: Partial<CarouselConfig>) => void }) {
+  const cfg = carouselConfig(component);
+  const setBp = (i: number, key: 'perView' | 'gap', raw: string) => {
+    const v = Math.max(key === 'perView' ? 1 : 0, Math.round(Number(raw) || 0));
+    onChange({ breakpoints: cfg.breakpoints.map((b, j) => (j === i ? { ...b, [key]: v } : b)) });
+  };
+  const rangeLabel = (i: number) => {
+    const b = cfg.breakpoints[i];
+    const next = cfg.breakpoints[i + 1];
+    if (!b) return '';
+    if (b.min === 0) return next ? `Até ${next.min - 1} px` : 'Todas as larguras';
+    return `A partir de ${b.min} px`;
+  };
+  const delay = cfg.autoplay ? String(cfg.autoplay.delay / 1000) : '';
+  return (
+    <Section title="Carrossel">
+      <div className="field">
+        <span>Slides visíveis por largura de ecrã</span>
+        {cfg.breakpoints.map((b, i) => (
+          <div className="row2" key={b.min}>
+            <label className="field">
+              <span>{rangeLabel(i)}</span>
+              <DraftInput label={`Slides visíveis: ${rangeLabel(i)}`} testId={`carousel-perview-${i}`} value={String(b.perView)} onCommit={(v) => setBp(i, 'perView', v)} />
+            </label>
+            <label className="field">
+              <span>Espaço (px)</span>
+              <DraftInput label={`Espaço entre slides: ${rangeLabel(i)}`} value={String(b.gap)} onCommit={(v) => setBp(i, 'gap', v)} />
+            </label>
+          </div>
+        ))}
+      </div>
+      <label className="check">
+        <input type="checkbox" checked={cfg.loop === true} onChange={(e) => onChange({ loop: e.target.checked })} />
+        Em ciclo
+      </label>
+      <label className="field">
+        <span>Avanço automático (segundos; 0 = contínuo; vazio = desligado)</span>
+        <DraftInput
+          label="Avanço automático"
+          value={delay}
+          placeholder="Desligado"
+          onCommit={(v) => onChange({ autoplay: v.trim() === '' ? null : { delay: Math.max(0, Number(v) || 0) * 1000 } })}
+        />
+      </label>
+      <span className="hint">No editor o carrossel não avança sozinho; selecione um slide na estrutura para o mostrar. O avanço vê-se na pré-visualização.</span>
+    </Section>
   );
 }

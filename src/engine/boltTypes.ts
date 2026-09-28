@@ -51,8 +51,60 @@ export function boltTypesPlugin(editor: Editor): void {
     },
   });
 
+  // Tipos usados pela importação. Nenhum acrescenta estilos: a aparência vem das classes e
+  // regras do documento importado, e o layout flex original mantém-se tal como estava.
+  structural(editor, 'bolt-row', 'div', 'row');
+  structural(editor, 'bolt-col', 'div', 'col');
+  structural(editor, 'bolt-icon', 'div', 'icon');
+  structural(editor, 'bolt-link-box', 'a', 'link-box');
+  structural(editor, 'bolt-list', 'ul', 'list');
+  structural(editor, 'bolt-list-item', 'li', 'list-item');
+
+  // Menu com versão móvel: o botão abre/fecha os itens (runtime do Bolt, sem scripts importados).
+  structural(editor, 'bolt-menu', 'nav', 'menu');
+  structural(editor, 'bolt-menu-toggle', 'div', 'menu-toggle', {
+    attributes: { 'data-bolt-type': 'menu-toggle', role: 'button', tabindex: '0', 'aria-label': 'Abrir menu', 'aria-expanded': 'false' },
+  });
+  structural(editor, 'bolt-menu-items', 'div', 'menu-items');
+
+  // Carrossel: configuração em data-bolt-carousel (JSON), slides como componentes editáveis.
+  structural(editor, 'bolt-carousel', 'div', 'carousel');
+  structural(editor, 'bolt-carousel-track', 'div', 'carousel-track', {
+    droppable: (source: Component) => source.get('type') === 'bolt-slide',
+  });
+  structural(editor, 'bolt-slide', 'div', 'slide', {
+    draggable: (_source: Component, target: Component) => target.get('type') === 'bolt-carousel-track',
+  });
+  structural(editor, 'bolt-carousel-pagination', 'div', 'carousel-pagination', { droppable: false });
+  structural(editor, 'bolt-carousel-prev', 'div', 'carousel-prev', {
+    attributes: { 'data-bolt-type': 'carousel-prev', role: 'button', tabindex: '0', 'aria-label': 'Slide anterior' },
+  });
+  structural(editor, 'bolt-carousel-next', 'div', 'carousel-next', {
+    attributes: { 'data-bolt-type': 'carousel-next', role: 'button', tabindex: '0', 'aria-label': 'Slide seguinte' },
+  });
+
+  // Acordeão nativo (<details>/<summary>): abre e fecha sem JavaScript.
+  structural(editor, 'bolt-accordion', 'div', 'accordion');
+  structural(editor, 'bolt-accordion-item', 'details', 'accordion-item');
+  editor.Components.addType('bolt-accordion-title', {
+    extend: 'text',
+    isComponent: (el) => el.tagName === 'SUMMARY',
+    model: { defaults: { tagName: 'summary', attributes: { 'data-bolt-type': 'accordion-title' } } },
+  });
+
+  // Campo de formulário: estrutura e atributos editáveis; o envio depende de integração.
+  editor.Components.addType('bolt-input', {
+    isComponent: (el) => el.tagName === 'INPUT',
+    model: { defaults: { tagName: 'input', void: true, droppable: false, attributes: { 'data-bolt-type': 'input', type: 'text' } } },
+  });
+
   // Nomes legíveis no destaque do canvas, derivados do modelo (sem os gravar).
-  for (const type of ['wrapper', 'default', 'text', 'image', 'link', 'bolt-button', 'bolt-section', 'bolt-navbar', 'bolt-footer', 'bolt-container', 'bolt-columns', 'bolt-column']) {
+  for (const type of [
+    'wrapper', 'default', 'text', 'image', 'link', 'bolt-button', 'bolt-section', 'bolt-navbar', 'bolt-footer', 'bolt-container', 'bolt-columns', 'bolt-column',
+    'bolt-row', 'bolt-col', 'bolt-icon', 'bolt-link-box', 'bolt-list', 'bolt-list-item', 'bolt-menu', 'bolt-menu-toggle', 'bolt-menu-items',
+    'bolt-carousel', 'bolt-carousel-track', 'bolt-slide', 'bolt-carousel-pagination', 'bolt-carousel-prev', 'bolt-carousel-next',
+    'bolt-accordion', 'bolt-accordion-item', 'bolt-accordion-title', 'bolt-input', 'svg',
+  ]) {
     editor.Components.addType(type, {
       model: {
         getName() {

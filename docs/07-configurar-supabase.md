@@ -27,6 +27,9 @@ supabase.com → **New project**:
 
 1. `supabase/migrations/20260928120000_projetos_e_revisoes.sql`
 2. `supabase/migrations/20260928120100_storage_imagens.sql`
+3. `supabase/migrations/20260928150000_biblioteca_templates.sql`: biblioteca de templates e registo de importações. É **nova** e só acrescenta: não altera nem apaga projetos, revisões ou imagens. A única alteração ao que existe é a política de apagar imagens, que passa a ser só do owner do workspace.
+
+Se as migrações 1 e 2 já foram aplicadas, corra **só a 3**.
 
 Cada um deve terminar com «Success. No rows returned».
 
@@ -36,6 +39,10 @@ Cada um deve terminar com «Success. No rows returned».
 
 - **Table Editor** mostra `workspaces`, `workspace_members`, `projects` e `project_revisions`, todas com «RLS enabled».
 - **Database → Functions** mostra `create_project`, `save_project`, `is_workspace_member`, `handle_new_user`, `validate_project_data` e `asset_workspace`.
+- Depois da migração 3:
+  - **Table Editor** mostra também `templates`, `template_versions` e `import_records`, com «RLS enabled»;
+  - **Functions** mostra também `create_template`, `add_template_version`, `record_import` e `writable_workspace`;
+  - em **Storage → Policies**, a política `project_assets_delete` indica o papel `owner`.
 
 ## 3. Autenticação
 
@@ -89,11 +96,13 @@ npm run test:server
 npm run test:e2e:server
 ```
 
-- **`test:server`** (API, 9 casos): usa o código de produção (`SupabaseRepository`, `SupabaseAssetStore`) contra o Auth, PostgREST/RPC e Storage reais. Cobre:
+- **`test:server`** (API, 11 casos; os 2 da biblioteca exigem a migração 3): usa o código de produção (`SupabaseRepository`, `SupabaseAssetStore`) contra o Auth, PostgREST/RPC e Storage reais. Cobre:
   - criação idempotente, gravação com revisão e conflito;
   - imagem no bucket privado e URL público recusado;
   - conta B sem acesso a projeto, histórico e imagem;
-  - cliente anónimo sem acesso.
+  - cliente anónimo sem acesso;
+  - biblioteca: template com versões imutáveis, conflito, projeto derivado independente, imagem acessível e conta B sem acesso;
+  - registo de importação com o original.
 - **`test:e2e:server`** (browser, 6 casos): cobre:
   - entrar, sair e voltar a entrar;
   - criar, editar, carregar imagem, guardar e reabrir, também num segundo browser autenticado;
@@ -102,6 +111,6 @@ npm run test:e2e:server
   - conflito entre duas abas;
   - cópia dos projetos locais para a conta, sem duplicar.
 
-Os dados criados têm o nome «[teste automático] …» e ficam arquivados no fim.
+Os dados criados têm o nome «[teste automático] …» e ficam arquivados no fim. Os templates de teste também. As imagens que esses projetos referenciam na biblioteca do workspace são apagadas.
 
-**Manual (não automatizado):** criar uma conta pelo ecrã do Bolt IA («Criar conta»), confirmar o email recebido e entrar.
+**Contas de utilizadores:** o ecrã do Bolt IA não oferece registo (acesso restrito à equipa). Crie as contas em Authentication → Users → Add user → Create new user. Para impedir também registos pela API pública, desligue «Allow new users to sign up» em Authentication → Sign In / Providers.

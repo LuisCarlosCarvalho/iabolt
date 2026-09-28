@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { LoginPage } from '../auth/LoginPage';
 import { DashboardPage } from '../dashboard/DashboardPage';
 import { EditorPage } from '../editor/EditorPage';
+import { ImportPage } from '../importers/ImportPage';
 import { TemplatesPage } from '../library/TemplatesPage';
 import { AppShell } from './AppShell';
 import { Link, useRoute } from './router';
@@ -24,6 +25,12 @@ function Routes() {
       return (
         <AppShell>
           <TemplatesPage />
+        </AppShell>
+      );
+    case 'import':
+      return (
+        <AppShell>
+          <ImportPage />
         </AppShell>
       );
     case 'editor':

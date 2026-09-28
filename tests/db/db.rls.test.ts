@@ -186,3 +186,113 @@ describe('Base de dados · migrações e RLS (PGlite)', () => {
     });
   });
 });
+
+describe('Base de dados · biblioteca de templates e importações (PGlite)', () => {
+  const tpl = (key: string, label: string, source: string | null = null) =>
+    db.query<{ id: string; current_version: number; workspace_id: string }>(
+      `select id, current_version, workspace_id from public.create_template($1, $2, '', $3, 1, 'grapesjs', '0.23.6', $4::jsonb)`,
+      [key, `Template ${label}`, source, DATA(label)],
+    );
+  const addVersion = (id: string, base: number, label: string) =>
+    db.query<{ status: string; version: number }>(`select * from public.add_template_version($1, $2, 1, 'grapesjs', '0.23.6', $3::jsonb, 'nota')`, [id, base, DATA(label)]);
+
+  it('template nasce na versão 1; cada alteração acrescenta uma versão imutável', async () => {
+    await as(USER_A, async () => {
+      const source = await createProject('a1a1a1a1-0000-4000-8000-000000000001', 'origem');
+      const t = must((await tpl('a1a1a1a1-0000-4000-8000-000000000002', 'T1', source.id)).rows[0]);
+      expect(t.current_version).toBe(1);
+      const again = must((await tpl('a1a1a1a1-0000-4000-8000-000000000002', 'T1', source.id)).rows[0]);
+      expect(again.id).toBe(t.id);
+      expect((await addVersion(t.id, 1, 'v2')).rows[0]).toEqual({ status: 'saved', version: 2 });
+      expect((await addVersion(t.id, 1, 'atrasada')).rows[0]).toEqual({ status: 'conflict', version: 2 });
+      const versions = await db.query<{ version: number; data: string }>(`select version, project_data::text as data from public.template_versions where template_id = $1 order by version`, [t.id]);
+      expect(versions.rows.map((r) => r.version)).toEqual([1, 2]);
+      expect(versions.rows[0]?.data).toContain('T1');
+      await expect(db.query(`update public.template_versions set project_data = '{}'::jsonb where template_id = $1`, [t.id])).rejects.toThrow(/permission denied/);
+      await expect(db.query(`delete from public.template_versions where template_id = $1`, [t.id])).rejects.toThrow(/permission denied/);
+      await expect(db.query(`update public.templates set current_version = 9 where id = $1`, [t.id])).rejects.toThrow(/permission denied/);
+      // Guardar o projeto de origem não muda o template.
+      await save(source.id, 0, 'origem alterada');
+      const v1 = await db.query<{ data: string }>(`select project_data::text as data from public.template_versions where template_id = $1 and version = 1`, [t.id]);
+      expect(v1.rows[0]?.data).not.toContain('origem alterada');
+    });
+    // Nem com privilégios de dono (como as funções SECURITY DEFINER) se reescreve uma versão.
+    await expect(db.query(`update public.template_versions set note = 'x'`)).rejects.toThrow(/template_version_immutable/);
+  });
+
+  it('remover o projeto de origem não afeta o template', async () => {
+    const { t, p } = await as(USER_A, async () => {
+      const p = await createProject('a1a1a1a1-0000-4000-8000-000000000003', 'efémero');
+      return { p, t: must((await tpl('a1a1a1a1-0000-4000-8000-000000000004', 'T2', p.id)).rows[0]) };
+    });
+    await db.query(`delete from public.projects where id = $1`, [p.id]);
+    await as(USER_A, async () => {
+      const row = await db.query<{ source_project_id: string | null; n: number }>(
+        `select t.source_project_id, (select count(*)::int from public.template_versions v where v.template_id = t.id) as n from public.templates t where t.id = $1`,
+        [t.id],
+      );
+      expect(row.rows[0]).toEqual({ source_project_id: null, n: 1 });
+    });
+  });
+
+  it('outro workspace não vê nem altera templates, versões ou importações', async () => {
+    const { t, p } = await as(USER_A, async () => {
+      const p = await createProject('a1a1a1a1-0000-4000-8000-000000000005', 'importado');
+      await db.query(`select * from public.record_import($1, 'elementor', 'x.json', 10, '{"content":[]}', '{"totals":{}}'::jsonb)`, [p.id]);
+      return { p, t: must((await tpl('a1a1a1a1-0000-4000-8000-000000000006', 'T3')).rows[0]) };
+    });
+    await as(USER_B, async () => {
+      for (const table of ['templates', 'template_versions', 'import_records']) {
+        const n = await db.query<{ n: number }>(`select count(*)::int as n from public.${table}`);
+        expect(n.rows[0]?.n).toBe(0);
+      }
+      await expect(addVersion(t.id, 1, 'intruso')).rejects.toThrow(/template_not_found/);
+      const renamed = await db.query(`update public.templates set name = 'hack' where id = $1`, [t.id]);
+      expect(renamed.affectedRows).toBe(0);
+      await expect(
+        db.query(`select * from public.create_template('b2b2b2b2-0000-4000-8000-000000000001', 'x', '', null, 1, 'grapesjs', '0.23.6', $1::jsonb, $2)`, [DATA('x'), t.workspace_id]),
+      ).rejects.toThrow(/forbidden/);
+      await expect(db.query(`select * from public.record_import($1, 'elementor', 'x.json', 1, '{}', '{}'::jsonb)`, [p.id])).rejects.toThrow(/project_not_found/);
+      // Projeto de origem de outro workspace é recusado.
+      await expect(tpl('b2b2b2b2-0000-4000-8000-000000000002', 'roubo', p.id)).rejects.toThrow(/project_not_found/);
+    });
+    await as(null, async () => {
+      await expect(db.query(`select * from public.templates`)).rejects.toThrow(/permission denied/);
+      await expect(db.query(`select * from public.import_records`)).rejects.toThrow(/permission denied/);
+    });
+  });
+
+  it('importação guarda o original e o relatório; remover o projeto mantém o registo', async () => {
+    const p = await as(USER_A, () => createProject('a1a1a1a1-0000-4000-8000-000000000007', 'import2'));
+    const rec = await as(USER_A, async () =>
+      must((await db.query<{ id: string }>(`select id from public.record_import($1, 'grapesjs', 'p.grapesjs', 20, '{"pages":[]}', '{"totals":{"parcial":1}}'::jsonb)`, [p.id])).rows[0]),
+    );
+    await as(USER_A, async () => {
+      await expect(db.query(`update public.import_records set original_text = 'x' where id = $1`, [rec.id])).rejects.toThrow(/permission denied/);
+    });
+    await db.query(`delete from public.projects where id = $1`, [p.id]);
+    await as(USER_A, async () => {
+      const row = await db.query<{ project_id: string | null; original_text: string }>(`select project_id, original_text from public.import_records where id = $1`, [rec.id]);
+      expect(row.rows[0]).toEqual({ project_id: null, original_text: '{"pages":[]}' });
+    });
+  });
+
+  it('imagens do workspace: editor carrega mas só o owner apaga', async () => {
+    const ws = must((await db.query<{ id: string }>(`insert into public.workspaces (name, created_by) values ('Equipa', $1) returning id`, [USER_A])).rows[0]).id;
+    await db.query(`insert into public.workspace_members (workspace_id, user_id, role) values ($1, $2, 'owner'), ($1, $3, 'editor')`, [ws, USER_A, USER_B]);
+    const path = `${ws}/library/foto.png`;
+    await as(USER_B, async () => {
+      expect((await db.query(`insert into storage.objects (bucket_id, name) values ('project-assets', $1)`, [path])).affectedRows).toBe(1);
+      expect((await db.query(`delete from storage.objects where name = $1`, [path])).affectedRows).toBe(0);
+    });
+    await as(USER_A, async () => {
+      expect((await db.query(`delete from storage.objects where name = $1`, [path])).affectedRows).toBe(1);
+    });
+    await db.query(`delete from public.workspaces where id = $1`, [ws]);
+  });
+});
+
+function must<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error('linha em falta');
+  return value;
+}

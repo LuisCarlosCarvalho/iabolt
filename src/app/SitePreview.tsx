@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GrapesProjectData } from '../contract/boltDocument';
-import { renderProjectHtml } from '../engine/createBoltEditor';
+import { previewDocument as buildPreview } from '../engine/runtime';
 
 /**
  * Pré-visualização em miniatura, gerada do JSON do projeto pelo próprio motor
@@ -8,9 +8,9 @@ import { renderProjectHtml } from '../engine/createBoltEditor';
  */
 const cache = new Map<string, string>();
 
+/** Miniatura estática (sem scripts). A prévia completa usa `previewDocument` com `interactive`. */
 export function previewDocument(data: GrapesProjectData): string {
-  const { html, css } = renderProjectHtml(data);
-  return `<!doctype html><html><head><meta charset="utf-8"><style>html{overflow:hidden}${css}</style></head>${html}</html>`;
+  return buildPreview(data);
 }
 
 export interface PreviewSource {

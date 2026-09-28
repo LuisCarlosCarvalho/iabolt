@@ -18,4 +18,17 @@ export default tseslint.config(
     files: ['scripts/**/*.mjs'],
     languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
   },
+  {
+    // Runtime servido às páginas (canvas, prévia, exportação): JavaScript de browser, sem build.
+    files: ['public/assets/runtime/**/*.js'],
+    languageOptions: {
+      sourceType: 'script',
+      globals: {
+        window: 'readonly', document: 'readonly', CSS: 'readonly', ResizeObserver: 'readonly', MutationObserver: 'readonly',
+        requestAnimationFrame: 'readonly', cancelAnimationFrame: 'readonly', setTimeout: 'readonly', setInterval: 'readonly', clearInterval: 'readonly',
+      },
+    },
+    // ES5 sem classes nem arrow functions: `var self = this` é o idioma para os callbacks.
+    rules: { '@typescript-eslint/no-this-alias': 'off' },
+  },
 );

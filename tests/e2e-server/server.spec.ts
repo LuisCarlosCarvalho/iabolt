@@ -83,7 +83,16 @@ async function expectPersisted(page: Page) {
   await expect(navButton).toHaveAttribute('target', '_blank');
   const img = f.locator('img.nb-hero-img').first();
   await expect(img).toHaveAttribute('src', SIGNED);
-  await expect.poll(() => img.evaluate((el) => (el instanceof HTMLImageElement ? el.naturalWidth : 0))).toBeGreaterThan(0);
+  // O GrapesJS cria os elementos com o `document` da janela principal e só depois os põe na
+  // moldura: `instanceof HTMLImageElement` é falso dentro do iframe. Medir sem depender do construtor.
+  await expect
+    .poll(() =>
+      img.evaluate((el) => ({
+        loaded: el.tagName === 'IMG' && 'complete' in el && el.complete === true && 'naturalWidth' in el && typeof el.naturalWidth === 'number' && el.naturalWidth > 0,
+        src: 'currentSrc' in el && typeof el.currentSrc === 'string' ? el.currentSrc : '',
+      })),
+    )
+    .toEqual({ loaded: true, src: expect.stringMatching(SIGNED) });
 }
 
 test('entrar, sair e voltar a entrar', async ({ page }) => {
@@ -238,7 +247,8 @@ test('projetos do modo local continuam no browser e podem ser copiados para a co
   const stillLocal = await page.evaluate(
     (id) =>
       new Promise<boolean>((resolve) => {
-        const open = indexedDB.open('bolt-ia', 1);
+        // Sem versão: abre a atual (a app já atualizou a base local para a v2 sem perder dados).
+        const open = indexedDB.open('bolt-ia');
         open.onsuccess = () => {
           const req = open.result.transaction('projects', 'readonly').objectStore('projects').get(id);
           req.onsuccess = () => resolve(Boolean(req.result));

@@ -25,6 +25,9 @@ export function getTemplate(id: string): TemplateDefinition | undefined {
 export function templateName(id: string | null): string | null {
   if (id === null) return null;
   if (id === BLANK_TEMPLATE_ID) return 'Em branco';
+  if (id.startsWith('team:')) return `Template da equipa (versão ${id.split('@')[1] ?? '?'})`;
+  if (id === 'import:grapesjs') return 'Importado de GrapesJS';
+  if (id === 'import:elementor') return 'Importado de Elementor';
   return getTemplate(id)?.name ?? null;
 }
 

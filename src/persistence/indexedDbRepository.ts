@@ -7,16 +7,15 @@ import {
   type ProjectSummary,
   type SaveResult,
 } from './repository';
+import { DB_NAME, done, openBoltDb, request, STORES } from './localDb';
 
 /**
  * Persistência LOCAL (modo sem servidor configurado). Os dados ficam só neste browser,
  * em IndexedDB. A interface identifica sempre este modo; não é gravação no servidor.
  * Mesmo contrato do SupabaseRepository: create/load/save com revisão otimista.
  */
-const DB_NAME = 'bolt-ia';
-const DB_VERSION = 1;
-const PROJECTS = 'projects';
-const KEYS = 'idempotency';
+const PROJECTS = STORES.projects;
+const KEYS = STORES.keys;
 
 interface ProjectRow {
   id: string;
@@ -41,21 +40,6 @@ function isProjectRow(v: unknown): v is ProjectRow {
 
 function isKeyRow(v: unknown): v is KeyRow {
   return typeof v === 'object' && v !== null && 'key' in v && 'projectId' in v;
-}
-
-function request<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error('Erro de IndexedDB'));
-  });
-}
-
-function done(tx: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error ?? new Error('Transação IndexedDB falhou'));
-    tx.onabort = () => reject(tx.error ?? new Error('Transação IndexedDB cancelada'));
-  });
 }
 
 function parseRow(row: ProjectRow): BoltDocument {
@@ -87,20 +71,7 @@ export class IndexedDbRepository implements ProjectCatalog {
 
   private db(): Promise<IDBDatabase> {
     if (!this.dbPromise) {
-      this.dbPromise = new Promise((resolve, reject) => {
-        if (!this.factory) {
-          reject(new Error('Este browser não permite guardar dados localmente (IndexedDB indisponível).'));
-          return;
-        }
-        const open = this.factory.open(this.dbName, DB_VERSION);
-        open.onupgradeneeded = () => {
-          const db = open.result;
-          if (!db.objectStoreNames.contains(PROJECTS)) db.createObjectStore(PROJECTS, { keyPath: 'id' });
-          if (!db.objectStoreNames.contains(KEYS)) db.createObjectStore(KEYS, { keyPath: 'key' });
-        };
-        open.onsuccess = () => resolve(open.result);
-        open.onerror = () => reject(open.error ?? new Error('Não foi possível abrir a base de dados local.'));
-      });
+      this.dbPromise = openBoltDb(this.factory, this.dbName);
     }
     return this.dbPromise;
   }

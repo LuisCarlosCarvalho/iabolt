@@ -13,7 +13,7 @@ export interface UploadedAsset {
 /** Destino das imagens carregadas pelo utilizador. Mesmo modo que o repositório de projetos. */
 export interface AssetStore {
   readonly mode: PersistenceMode;
-  upload(file: File, ctx: { projectId: string; workspaceId?: string }): Promise<UploadedAsset>;
+  upload(file: File, ctx?: { projectId?: string; workspaceId?: string }): Promise<UploadedAsset>;
   /** URLs para mostrar referências guardadas. As que não é possível resolver ficam de fora. */
   resolve(refs: readonly string[]): Promise<Map<string, string>>;
 }
@@ -88,18 +88,40 @@ export const ASSET_BUCKET = 'project-assets';
  * Modo servidor: Supabase Storage, bucket PRIVADO `project-assets`, pasta do workspace (RLS).
  * O documento guarda `bolt-asset:<caminho>`; para mostrar, pede URLs assinados (só quem é
  * membro do workspace os consegue obter).
+ *
+ * Propriedade e duração: cada ficheiro pertence ao WORKSPACE (`<workspace>/library/<uuid>`),
+ * não a um projeto. Arquivar ou remover um projeto não apaga imagens, por isso templates e
+ * projetos derivados que as referenciam continuam a mostrá-las. (Ficheiros antigos em
+ * `<workspace>/<projeto>/…` continuam válidos.)
  */
 export class SupabaseAssetStore implements AssetStore {
   readonly mode = 'server' as const;
 
   constructor(private readonly client: SupabaseClient) {}
 
-  async upload(file: File, ctx: { projectId: string; workspaceId?: string }): Promise<UploadedAsset> {
+  private workspace: Promise<string> | null = null;
+
+  /** Workspace pessoal do utilizador (o primeiro onde é owner/editor). */
+  private defaultWorkspace(): Promise<string> {
+    this.workspace ??= (async () => {
+      const { data, error } = await this.client.from('workspace_members').select('workspace_id, role, created_at').in('role', ['owner', 'editor']).order('created_at').limit(1);
+      const row: unknown = Array.isArray(data) ? data[0] : undefined;
+      const id = row && typeof row === 'object' && 'workspace_id' in row && typeof row.workspace_id === 'string' ? row.workspace_id : undefined;
+      if (error || !id) {
+        this.workspace = null;
+        throw new Error(`Não foi possível identificar o workspace para guardar a imagem${error ? `: ${error.message}` : '.'}`);
+      }
+      return id;
+    })();
+    return this.workspace;
+  }
+
+  async upload(file: File, ctx: { projectId?: string; workspaceId?: string } = {}): Promise<UploadedAsset> {
     validateImage(file);
-    if (!ctx.workspaceId) throw new Error('Workspace do projeto desconhecido: não é possível carregar a imagem.');
+    const workspaceId = ctx.workspaceId ?? (await this.defaultWorkspace());
     const blob = await downscale(file);
     const type = blob.type || file.type;
-    const path = `${ctx.workspaceId}/${ctx.projectId}/${crypto.randomUUID()}.${EXT[type] ?? 'bin'}`;
+    const path = `${workspaceId}/library/${crypto.randomUUID()}.${EXT[type] ?? 'bin'}`;
     const { error } = await this.client.storage.from(ASSET_BUCKET).upload(path, blob, { contentType: type, upsert: false });
     if (error) throw new Error(`Falha ao carregar a imagem: ${error.message}`);
     const ref = assetRef(path);

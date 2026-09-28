@@ -46,4 +46,5 @@ npm run test:e2e:server  # browser real contra o Supabase, porta própria 5176
 - `docs/04-plano-de-testes.md`: o que cada teste prova
 - `docs/05-resultados-fase0.md` e `docs/06-entrega-1-primeira-versao.md`: resultados executados
 - `docs/07-configurar-supabase.md`: configurar o projeto Supabase e validar
+- `docs/08-amostra-grapesjs-analise.md`: análise da amostra Studio e plano do importador
 - `CLAUDE.md`: regras operacionais

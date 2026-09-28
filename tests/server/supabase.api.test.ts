@@ -5,6 +5,7 @@ import { ASSET_BUCKET, SupabaseAssetStore } from '../../src/assets/assetStore';
 import type { GrapesProjectData } from '../../src/contract/boltDocument';
 import { ProjectNotFoundError } from '../../src/persistence/repository';
 import { SupabaseRepository } from '../../src/persistence/supabaseRepository';
+import { SupabaseTemplateLibrary } from '../../src/library/supabaseTemplateLibrary';
 import { cleanupProjects, newClient, signedIn } from './testAccounts';
 
 /**
@@ -90,7 +91,8 @@ describe('Supabase real · conta A', () => {
     const store = new SupabaseAssetStore(a);
     const uploaded = await store.upload(new File([PNG], 'teste.png', { type: 'image/png' }), { projectId, workspaceId });
     imageRef = uploaded.stored;
-    expect(imageRef).toMatch(new RegExp(`^bolt-asset:${workspaceId}/${projectId}/`));
+    // Imagens pertencem ao workspace (biblioteca), não ao projeto: sobrevivem a arquivar o projeto.
+    expect(imageRef).toMatch(new RegExp(`^bolt-asset:${workspaceId}/library/`));
     expect(uploaded.display).toMatch(/^https:\/\/.+token=/);
 
     expect((await repoA.save(projectId, 1, page('com imagem', imageRef))).status).toBe('saved');
@@ -152,5 +154,46 @@ describe('Supabase real · sem sessão', () => {
     const save = await anon.rpc('save_project', { p_project_id: projectId, p_base_revision: 2, p_project_data: page('anon') });
     expect(save.error).not.toBeNull();
     expect(JSON.stringify((await repoA.load(projectId)).projectData)).not.toContain('anon');
+  });
+});
+
+describe('Supabase real · biblioteca de templates (migração 20260928150000)', () => {
+  const templateIds: string[] = [];
+  afterAll(async () => {
+    // Templates não se apagam: os de teste ficam arquivados (só os criados aqui).
+    const lib = new SupabaseTemplateLibrary(await signedIn('A'), ENGINE);
+    for (const id of templateIds) await lib.archive(id).catch(() => undefined);
+  });
+
+  it('guardar como template: versão 1 imutável; nova versão com controlo de conflito; B não vê', async () => {
+    const libA = new SupabaseTemplateLibrary(a, ENGINE);
+    const t = await libA.create(crypto.randomUUID(), { name: '[teste automático] template', description: '', sourceProjectId: projectId, projectData: page('tpl v1', imageRef) });
+    templateIds.push(t.id);
+    expect(t.currentVersion).toBe(1);
+    expect(await libA.addVersion(t.id, 1, page('tpl v2'), 'teste', projectId)).toEqual({ status: 'saved', version: 2 });
+    expect(await libA.addVersion(t.id, 1, page('atrasada'), '', null)).toEqual({ status: 'conflict', currentVersion: 2 });
+    expect(JSON.stringify((await libA.loadVersion(t.id, 1)).projectData)).toContain('tpl v1');
+    const update = await a.from('template_versions').update({ note: 'x' }).eq('template_id', t.id);
+    expect(update.error).not.toBeNull();
+
+    // Projeto a partir da versão 1: cópia independente; a imagem continua acessível.
+    const v1 = await libA.loadVersion(t.id, 1);
+    const derived = await repoA.create(crypto.randomUUID(), v1.projectData, { name: '[teste automático] derivado', templateId: `team:${t.id}@1` });
+    createdIds.push(derived.projectId);
+    await repoA.save(derived.projectId, 0, page('derivado alterado'));
+    expect(JSON.stringify((await libA.loadVersion(t.id, 1)).projectData)).toContain('tpl v1');
+    expect((await new SupabaseAssetStore(a).resolve([imageRef])).has(imageRef)).toBe(true);
+
+    const libB = new SupabaseTemplateLibrary(b, ENGINE);
+    expect((await libB.list()).some((x) => x.id === t.id)).toBe(false);
+    await expect(libB.addVersion(t.id, 2, page('intruso'), '', null)).rejects.toThrow();
+  });
+
+  it('registo de importação guarda o original; B não o lê', async () => {
+    const libA = new SupabaseTemplateLibrary(a, ENGINE);
+    const report = { format: 'grapesjs', formatLabel: 'GrapesJS', fileName: 'x.json', fileSize: 2, items: [], assets: [], fonts: [], notes: [], removed: [], totals: { preservado: 0, convertido: 0, parcial: 0, 'nao-suportado': 0 } } as const;
+    await libA.record({ projectId, format: 'grapesjs', fileName: 'x.json', fileSize: 2, originalText: '{}', report: { ...report, items: [], assets: [], fonts: [], notes: [], removed: [] } });
+    expect((await libA.forProject(projectId)).some((r) => r.originalText === '{}')).toBe(true);
+    expect(await new SupabaseTemplateLibrary(b, ENGINE).forProject(projectId)).toEqual([]);
   });
 });
