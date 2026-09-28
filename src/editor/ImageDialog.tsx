@@ -7,6 +7,13 @@ import { useServices } from '../app/services';
 import { Button, errorMessage, Modal } from '../app/ui';
 import { IMAGE_PLACEHOLDER } from '../engine/blocks';
 import { setImage } from '../engine/operations';
+import { setOwnStyle, type DeviceId } from '../engine/styles';
+
+/** URL dentro de `url("...")` de um valor de background-image (o primeiro). */
+function cssUrl(value: string): string {
+  const m = /url\(\s*(['"]?)(.*?)\1\s*\)/.exec(value);
+  return m?.[2] ?? '';
+}
 
 /** Imagens já usadas na página (derivadas do modelo, sem lista paralela). */
 function pageImages(editor: Editor): string[] {
@@ -23,7 +30,24 @@ function pageImages(editor: Editor): string[] {
   return [...out];
 }
 
-export function ImageDialog({ editor, target, projectId, workspaceId, urls, onClose }: { editor: Editor; target: Component | null; projectId: string; workspaceId?: string; urls: AssetUrlMap; onClose: () => void }) {
+export function ImageDialog({
+  editor,
+  target,
+  projectId,
+  workspaceId,
+  urls,
+  onClose,
+  background,
+}: {
+  editor: Editor;
+  target: Component | null;
+  projectId: string;
+  workspaceId?: string;
+  urls: AssetUrlMap;
+  onClose: () => void;
+  /** Modo «imagem de fundo»: grava em background-image do elemento, no dispositivo indicado. */
+  background?: { device: DeviceId };
+}) {
   const { assets, mode } = useServices();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -33,7 +57,8 @@ export function ImageDialog({ editor, target, projectId, workspaceId, urls, onCl
 
   const apply = (src: string) => {
     if (!target) return;
-    setImage(editor, target.getId(), { src });
+    if (background) setOwnStyle(editor, target, background.device, { 'background-image': `url("${src}")` });
+    else setImage(editor, target.getId(), { src });
     setError(null);
     setUrl('');
     onClose();
@@ -67,11 +92,15 @@ export function ImageDialog({ editor, target, projectId, workspaceId, urls, onCl
     }
   };
 
-  const current = target ? String(target.get('src') ?? '') : '';
+  const bgNow = (() => {
+    const el = target?.getEl();
+    return el?.ownerDocument?.defaultView?.getComputedStyle(el).backgroundImage ?? '';
+  })();
+  const current = target ? (background ? cssUrl(bgNow) : String(target.get('src') ?? '')) : '';
   const used = target ? pageImages(editor).filter((s) => s !== current) : [];
 
   return (
-    <Modal open={target !== null} title="Escolher imagem" onClose={onClose}>
+    <Modal open={target !== null} title={background ? 'Imagem de fundo' : 'Escolher imagem'} onClose={onClose}>
       {current && <img className="img-thumb" src={current} alt="Imagem atual" />}
       <div
         className={`drop-zone ${over ? 'is-over' : ''}`}

@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { account, cleanupProjects, projectIdFromUrl, type Who } from '../server/testAccounts';
+import { account, cleanupProjects, projectIdFromUrl, signedIn, type Who } from '../server/testAccounts';
 
 /**
  * Percurso do Bolt IA contra o SUPABASE REAL (`npm run test:e2e:server`, docs/07).
@@ -283,4 +283,53 @@ test('duas sessões: a segunda recebe conflito e não sobrescreve', async ({ pag
 
   await page.reload();
   await expect(frame(page).locator('h1')).toHaveText('Versão da sessão A');
+});
+
+test('inspetor: imagem de fundo carregada e ajuste só no telemóvel ficam gravados com referência durável', async ({ page }) => {
+  await login(page, 'A');
+  await createProject(page, unique());
+  const projectId = projectIdFromUrl(page.url());
+
+  // Imagem de fundo numa coluna, pelo diálogo de imagens existente (carregamento para o Storage).
+  await page.getByTestId('layer-row').filter({ has: page.locator('.tree-label', { hasText: /^Coluna$/ }) }).first().click();
+  const colId = await frame(page).locator('.gjs-selected').getAttribute('id');
+  const col = frame(page).locator(`#${colId ?? ''}`);
+  const head = page.getByTestId('group-background');
+  if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click();
+  await page.getByTestId('pick-background').click();
+  const dialog = page.getByRole('dialog', { name: 'Imagem de fundo' });
+  await dialog.getByTestId('image-file-input').setInputFiles({ name: 'fundo.png', mimeType: 'image/png', buffer: PNG });
+  await expect(dialog).toBeHidden();
+  await expect.poll(() => col.evaluate((el) => getComputedStyle(el).backgroundImage)).toMatch(SIGNED);
+
+  // Ajuste só no telemóvel.
+  await page.getByRole('button', { name: 'Telemóvel', exact: true }).click();
+  const spacing = page.getByTestId('group-spacing');
+  if ((await spacing.getAttribute('aria-expanded')) !== 'true') await spacing.click();
+  await page.getByTestId('style-padding-top').fill('7');
+  await page.getByTestId('style-padding-top').press('Enter');
+  await save(page);
+
+  // No servidor: referência estável dentro de url(...), nunca o URL assinado; regra móvel no breakpoint.
+  const client = await signedIn('A');
+  try {
+    const { data, error } = await client.from('projects').select('project_data').eq('id', projectId).single();
+    expect(error).toBeNull();
+    const text = JSON.stringify(data?.project_data ?? null);
+    const refs = text.match(/bolt-asset:[A-Za-z0-9._/-]+/g) ?? [];
+    expect(refs.some((r) => r.includes('/library/'))).toBe(true);
+    // Dentro de url(...) no CSS (as aspas aparecem escapadas no JSON).
+    expect(text.includes('url(\\"bolt-asset:') || text.includes('url(bolt-asset:')).toBe(true);
+    expect(text).not.toMatch(/\/storage\/v1\/object\/sign\//);
+    expect(text).toContain('(max-width: 480px)');
+    expect(text).toContain('"padding-top":"7px"');
+  } finally {
+    await client.auth.signOut();
+  }
+
+  // Reabrir: a imagem volta a aparecer (novo URL assinado) e o computador não tem o ajuste móvel.
+  await page.reload();
+  const again = frame(page).locator(`#${colId ?? ''}`);
+  await expect.poll(() => again.evaluate((el) => getComputedStyle(el).backgroundImage)).toMatch(SIGNED);
+  expect(await again.evaluate((el) => getComputedStyle(el).paddingTop)).not.toBe('7px');
 });

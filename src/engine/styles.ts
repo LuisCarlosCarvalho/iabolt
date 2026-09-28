@@ -110,10 +110,46 @@ export const EDITABLE_PROPS = [
   'padding-bottom',
   'padding-left',
   'margin-top',
+  'margin-right',
   'margin-bottom',
-  'border-radius',
+  'margin-left',
+  // Layout
+  'display',
+  'flex-direction',
+  'justify-content',
+  'align-items',
+  'flex-wrap',
+  'gap',
+  'row-gap',
+  'column-gap',
+  'grid-template-columns',
+  // Dimensões
   'width',
+  'height',
+  'min-width',
+  'min-height',
   'max-width',
+  'max-height',
+  // Fundo
+  'background-image',
+  'background-size',
+  'background-position',
+  'background-repeat',
+  // Bordas
+  'border-width',
+  'border-style',
+  'border-color',
+  'border-radius',
+  // Efeitos
+  'opacity',
+  'box-shadow',
+  // Posição
+  'position',
+  'top',
+  'right',
+  'bottom',
+  'left',
+  'z-index',
 ] as const;
 
 export type EditableProp = (typeof EDITABLE_PROPS)[number];
@@ -141,9 +177,15 @@ export function getOwnStyle(editor: Editor, component: Component, device: Device
 export function setOwnStyle(editor: Editor, component: Component, device: DeviceId, patch: StylePatch): void {
   const opts = mediaOpts(deviceById(device).media || undefined);
   const selector = `#${component.getId()}`;
-  const current = editor.Css.getRule(selector, opts)?.getStyle() ?? {};
+  const rule = editor.Css.getRule(selector, opts);
+  const current = rule?.getStyle() ?? {};
   const merged: Record<string, unknown> = { ...current, ...patch };
   // Valores vazios removem a propriedade.
   const next = Object.fromEntries(Object.entries(merged).filter((e): e is [string, string] => typeof e[1] === 'string' && e[1] !== ''));
+  // Sem mudança real (ex.: repor um valor que não existe): não escrever. Assim não se criam
+  // regras vazias nem passos de histórico sem efeito.
+  const same = Object.keys(next).length === Object.keys(current).length && Object.entries(next).every(([k, v]) => current[k] === v);
+  if (same) return;
+  if (!rule && Object.keys(next).length === 0) return;
   editor.Css.setRule(selector, next, opts);
 }

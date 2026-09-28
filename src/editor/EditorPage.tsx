@@ -18,6 +18,7 @@ import { ProjectNotFoundError, type PersistenceMode, type ProjectSummary } from 
 import { SaveQueue, type SaveState } from '../persistence/saveQueue';
 import { SaveTemplateDialog } from '../library/SaveTemplateDialog';
 import { BlocksPanel } from './BlocksPanel';
+import { CanvasToolbar } from './CanvasToolbar';
 import { ImageDialog } from './ImageDialog';
 import { LayersPanel } from './LayersPanel';
 import { PropertiesPanel } from './PropertiesPanel';
@@ -130,10 +131,13 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
   const [device, setDeviceState] = useState<DeviceId>('desktop');
   const [leftTab, setLeftTab] = useState<'layers' | 'blocks'>('layers');
   const [imageTarget, setImageTarget] = useState<Component | null>(null);
+  const [backgroundTarget, setBackgroundTarget] = useState<Component | null>(null);
   const [name, setName] = useState(summary.name);
   const [savedName, setSavedName] = useState(summary.name);
   const [leaving, setLeaving] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
+  // Contentor do canvas (referencial da barra de ferramentas contextual).
+  const [canvasWrap, setCanvasWrap] = useState<HTMLDivElement | null>(null);
 
   // Monta o motor com o documento validado. A fila de gravação só existe depois do 'load'.
   useEffect(() => {
@@ -329,7 +333,7 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
         </div>
         {editor && <HistoryButtons editor={editor} />}
         <div className="shell-spacer" />
-        <ModeBadge />
+        <ModeBadge compact />
         {/* Até o motor carregar, nada está pronto para editar: não mostrar «guardado» ainda. */}
         <span className="save-status" data-state={editor ? saveState : 'saving'} data-testid="save-status" aria-live="polite" title={saveError ?? undefined}>
           <span className="save-dot" aria-hidden="true" />
@@ -376,8 +380,9 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
         )}
         {editor && <FormNotice editor={editor} />}
         {editor ? <ContextBar editor={editor} /> : <div className="context-bar" />}
-        <div className="canvas-wrap">
+        <div className="canvas-wrap" ref={setCanvasWrap}>
           <div className="canvas-host" ref={canvasRef} data-testid="canvas" />
+          {editor && canvasWrap && <CanvasToolbar editor={editor} host={canvasWrap} onReplaceImage={setImageTarget} onImageInserted={setImageTarget} />}
           {!editor && (
             <div className="canvas-overlay"><Spinner label="A preparar o editor…" /></div>
           )}
@@ -386,7 +391,7 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
 
       <aside className="side side-right" aria-label="Propriedades">
         {editor ? (
-          <TickedProperties editor={editor} device={device} onReplaceImage={setImageTarget} footer={diagnostics} />
+          <TickedProperties editor={editor} device={device} onReplaceImage={setImageTarget} onPickBackground={setBackgroundTarget} footer={diagnostics} />
         ) : (
           diagnostics
         )}
@@ -400,6 +405,17 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
           urls={urls}
           {...(summary.workspaceId ? { workspaceId: summary.workspaceId } : {})}
           onClose={() => setImageTarget(null)}
+        />
+      )}
+      {editor && (
+        <ImageDialog
+          editor={editor}
+          target={backgroundTarget}
+          projectId={doc.projectId}
+          urls={urls}
+          {...(summary.workspaceId ? { workspaceId: summary.workspaceId } : {})}
+          background={{ device }}
+          onClose={() => setBackgroundTarget(null)}
         />
       )}
 
@@ -441,7 +457,7 @@ function TickedLayers({ editor }: { editor: Editor }) {
   return <LayersPanel editor={editor} />;
 }
 
-function TickedProperties(props: { editor: Editor; device: DeviceId; onReplaceImage: (c: Component) => void; footer: ReactNode }) {
+function TickedProperties(props: { editor: Editor; device: DeviceId; onReplaceImage: (c: Component) => void; onPickBackground: (c: Component) => void; footer: ReactNode }) {
   useEditorTick(props.editor);
   return <PropertiesPanel {...props} />;
 }

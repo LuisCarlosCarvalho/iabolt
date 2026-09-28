@@ -1,7 +1,7 @@
 import type { Component, Editor } from 'grapesjs';
-import { AlertTriangle, AlignCenter, AlignJustify, AlignLeft, AlignRight, ImageUp, RotateCcw } from 'lucide-react';
-import { useReducer, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { Button, IconButton } from '../app/ui';
+import { AlertTriangle, ImageUp } from 'lucide-react';
+import { useReducer, useState, type ReactNode } from 'react';
+import { Button } from '../app/ui';
 import { contentHint, displayName, isLogo } from '../engine/labels';
 import {
   carouselConfig,
@@ -20,136 +20,14 @@ import {
   type CarouselConfig,
   type InputPatch,
 } from '../engine/operations';
-import { deviceById, getOwnStyle, setOwnStyle, type DeviceId, type EditableProp } from '../engine/styles';
-
-/** Valor calculado no canvas (para mostrar o efetivo quando o elemento não tem valor próprio). */
-function computedStyle(c: Component): CSSStyleDeclaration | null {
-  const el = c.getEl();
-  const win = el?.ownerDocument?.defaultView;
-  return el && win ? win.getComputedStyle(el) : null;
-}
-
-function toHex(color: string): string {
-  if (/^#[0-9a-f]{6}$/i.test(color)) return color.toLowerCase();
-  if (/^#[0-9a-f]{3}$/i.test(color)) return `#${color.slice(1).split('').map((ch) => ch + ch).join('')}`.toLowerCase();
-  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(color);
-  if (!m) return '#000000';
-  return `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`;
-}
+import { setOwnStyle, type DeviceId } from '../engine/styles';
+import { DraftInput } from './DraftInput';
+import { StyleInspector, type StyleGroup } from './StyleInspector';
 
 function decodeHtml(html: string): string {
   const t = document.createElement('textarea');
   t.innerHTML = html;
   return t.value.split(String.fromCharCode(160)).join(' ');
-}
-
-const UNITLESS = new Set<EditableProp>(['font-weight', 'line-height']);
-
-function normalize(prop: EditableProp, raw: string): string {
-  const v = raw.trim();
-  if (v === '') return '';
-  if (!UNITLESS.has(prop) && /^-?\d+(\.\d+)?$/.test(v)) return `${v}px`;
-  return v;
-}
-
-const FONTS: Array<[string, string]> = [
-  ['', 'Do tema'],
-  ["'Inter', 'Segoe UI', system-ui, sans-serif", 'Sem serifa (Inter)'],
-  ["Georgia, 'Times New Roman', serif", 'Com serifa (Georgia)'],
-  ["'Trebuchet MS', 'Segoe UI', sans-serif", 'Humanista (Trebuchet)'],
-  ["ui-monospace, 'Cascadia Code', Consolas, monospace", 'Monoespaçada'],
-];
-
-const WEIGHTS: Array<[string, string]> = [
-  ['', 'Do tema'],
-  ['400', 'Normal'],
-  ['500', 'Médio'],
-  ['600', 'Semi-negrito'],
-  ['700', 'Negrito'],
-  ['800', 'Extra-negrito'],
-];
-
-interface StyleCtx {
-  own: Partial<Record<EditableProp, string>>;
-  computed: CSSStyleDeclaration | null;
-  commit: (prop: EditableProp, value: string) => void;
-}
-
-/** Campo de texto com rascunho local; grava ao sair do campo ou com Enter (um passo de desfazer). */
-function DraftInput({ value, placeholder, onCommit, label, testId, multiline = false }: { value: string; placeholder?: string; onCommit: (v: string) => void; label: string; testId?: string; multiline?: boolean }) {
-  const [draft, setDraft] = useState(value);
-  const [base, setBase] = useState(value);
-  // Valor externo mudou (desfazer, outro dispositivo): o rascunho acompanha.
-  if (value !== base) {
-    setBase(value);
-    setDraft(value);
-  }
-  const commit = () => {
-    if (draft !== value) onCommit(draft);
-  };
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' && !multiline) {
-      e.preventDefault();
-      commit();
-    }
-    if (e.key === 'Escape') setDraft(value);
-  };
-  return multiline ? (
-    <textarea className="textarea" aria-label={label} data-testid={testId} value={draft} placeholder={placeholder} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={onKey} />
-  ) : (
-    <input className="input" aria-label={label} data-testid={testId} value={draft} placeholder={placeholder} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={onKey} />
-  );
-}
-
-function StyleInput({ ctx, prop, label }: { ctx: StyleCtx; prop: EditableProp; label: string }) {
-  return (
-    <DraftInput
-      label={label}
-      testId={`style-${prop}`}
-      value={ctx.own[prop] ?? ''}
-      placeholder={ctx.computed?.getPropertyValue(prop) || ''}
-      onCommit={(v) => ctx.commit(prop, normalize(prop, v))}
-    />
-  );
-}
-
-function ColorInput({ ctx, prop, label }: { ctx: StyleCtx; prop: 'color' | 'background-color'; label: string }) {
-  const own = ctx.own[prop] ?? '';
-  const computed = ctx.computed?.getPropertyValue(prop) || '';
-  const transparent = !own && (computed === 'transparent' || /rgba\([^)]*,\s*0\)$/.test(computed));
-  const effective = own || computed;
-  return (
-    <div className="field">
-      <span>{label}</span>
-      <div className="color-field">
-        <input type="color" aria-label={`${label} (seletor)`} data-testid={`color-${prop}`} value={transparent ? '#ffffff' : toHex(effective)} onChange={(e) => ctx.commit(prop, e.target.value)} />
-        <DraftInput label={label} value={own} placeholder={transparent ? 'Transparente' : effective} onCommit={(v) => ctx.commit(prop, v.trim())} />
-        {own && (
-          <IconButton label={`Repor ${label.toLowerCase()}`} onClick={() => ctx.commit(prop, '')}>
-            <RotateCcw />
-          </IconButton>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Select({ ctx, prop, label, options }: { ctx: StyleCtx; prop: EditableProp; label: string; options: Array<[string, string]> }) {
-  const own = ctx.own[prop] ?? '';
-  const known = options.some(([v]) => v === own);
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <select className="select" data-testid={`style-${prop}`} value={own} onChange={(e) => ctx.commit(prop, e.target.value)}>
-        {!known && <option value={own}>{own}</option>}
-        {options.map(([v, l]) => (
-          <option key={v || 'tema'} value={v}>
-            {l}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
 }
 
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
@@ -164,8 +42,28 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
   );
 }
 
-export function PropertiesPanel({ editor, device, onReplaceImage, footer }: { editor: Editor; device: DeviceId; onReplaceImage: (c: Component) => void; footer: ReactNode }) {
+export function PropertiesPanel({
+  editor,
+  device,
+  onReplaceImage,
+  onPickBackground,
+  footer,
+}: {
+  editor: Editor;
+  device: DeviceId;
+  onReplaceImage: (c: Component) => void;
+  onPickBackground: (c: Component) => void;
+  footer: ReactNode;
+}) {
   const c = editor.getSelected();
+  // Grupos abertos: preferência de interface (não entra no documento).
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<StyleGroup>>(() => new Set<StyleGroup>(['typography', 'spacing']));
+  const onToggleGroup = (g: StyleGroup) => {
+    const next = new Set(openGroups);
+    if (next.has(g)) next.delete(g);
+    else next.add(g);
+    setOpenGroups(next);
+  };
   if (!c) {
     return (
       <div className="props">
@@ -179,20 +77,35 @@ export function PropertiesPanel({ editor, device, onReplaceImage, footer }: { ed
   }
   return (
     <div className="props">
-      <ComponentProps editor={editor} component={c} device={device} onReplaceImage={onReplaceImage} />
+      <ComponentProps editor={editor} component={c} device={device} onReplaceImage={onReplaceImage} onPickBackground={onPickBackground} openGroups={openGroups} onToggleGroup={onToggleGroup} />
       {footer}
     </div>
   );
 }
 
-function ComponentProps({ editor, component: c, device, onReplaceImage }: { editor: Editor; component: Component; device: DeviceId; onReplaceImage: (c: Component) => void }) {
+function ComponentProps({
+  editor,
+  component: c,
+  device,
+  onReplaceImage,
+  onPickBackground,
+  openGroups,
+  onToggleGroup,
+}: {
+  editor: Editor;
+  component: Component;
+  device: DeviceId;
+  onReplaceImage: (c: Component) => void;
+  onPickBackground: (c: Component) => void;
+  openGroups: ReadonlySet<StyleGroup>;
+  onToggleGroup: (g: StyleGroup) => void;
+}) {
   const id = c.getId();
   const isImage = c.is('image');
   const link = isLink(c);
   const isText = c.is('text') || c.is('bolt-accordion-title');
   const tag = textTag(c);
   const plain = (isText || link) && isPlainText(c);
-  const deviceLabel = deviceById(device).label;
   // Os controlos leem o modelo do motor. Depois de cada alteração o painel volta a desenhar-se
   // no próprio evento: sem isto, um controlo controlado (ex.: checkbox) mostrava o valor antigo
   // até ao fotograma seguinte, e um clique podia parecer não ter efeito.
@@ -200,11 +113,6 @@ function ComponentProps({ editor, component: c, device, onReplaceImage }: { edit
   const apply = (change: () => void) => {
     change();
     refresh();
-  };
-  const ctx: StyleCtx = {
-    own: getOwnStyle(editor, c, device),
-    computed: computedStyle(c),
-    commit: (prop, value) => apply(() => setOwnStyle(editor, c, device, { [prop]: value })),
   };
   const attrs = c.getAttributes();
   const hint = contentHint(c, 60);
@@ -280,83 +188,16 @@ function ComponentProps({ editor, component: c, device, onReplaceImage }: { edit
         </Section>
       )}
 
-      {!isImage && (
-        <Section title="Tipografia" aside={<small>{deviceLabel}</small>}>
-          <Select ctx={ctx} prop="font-family" label="Fonte" options={FONTS} />
-          <div className="row2">
-            <label className="field">
-              <span>Tamanho</span>
-              <StyleInput ctx={ctx} prop="font-size" label="Tamanho da letra" />
-            </label>
-            <Select ctx={ctx} prop="font-weight" label="Peso" options={WEIGHTS} />
-          </div>
-          <label className="field">
-            <span>Altura de linha</span>
-            <StyleInput ctx={ctx} prop="line-height" label="Altura de linha" />
-          </label>
-          <ColorInput ctx={ctx} prop="color" label="Cor do texto" />
-          <div className="field">
-            <span>Alinhamento</span>
-            <div className="segmented" role="group" aria-label="Alinhamento do texto">
-              {(
-                [
-                  ['left', 'À esquerda', <AlignLeft key="l" />],
-                  ['center', 'Ao centro', <AlignCenter key="c" />],
-                  ['right', 'À direita', <AlignRight key="r" />],
-                  ['justify', 'Justificado', <AlignJustify key="j" />],
-                ] as const
-              ).map(([v, l, icon]) => (
-                <IconButton key={v} label={l} aria-pressed={ctx.own['text-align'] === v} onClick={() => ctx.commit('text-align', ctx.own['text-align'] === v ? '' : v)}>
-                  {icon}
-                </IconButton>
-              ))}
-            </div>
-          </div>
-        </Section>
-      )}
-
-      <Section title={isImage ? 'Tamanho e aspeto' : 'Cores e aspeto'} aside={<small>{deviceLabel}</small>}>
-        {!isImage && <ColorInput ctx={ctx} prop="background-color" label="Cor de fundo" />}
-        {isImage && (
-          <div className="row2">
-            <label className="field">
-              <span>Largura</span>
-              <StyleInput ctx={ctx} prop="width" label="Largura" />
-            </label>
-            <label className="field">
-              <span>Largura máxima</span>
-              <StyleInput ctx={ctx} prop="max-width" label="Largura máxima" />
-            </label>
-          </div>
-        )}
-        <label className="field">
-          <span>Cantos arredondados</span>
-          <StyleInput ctx={ctx} prop="border-radius" label="Cantos arredondados" />
-        </label>
-      </Section>
-
-      <Section title="Espaçamento" aside={<small>{deviceLabel}</small>}>
-        <div className="field">
-          <span>Espaço interior (cima · direita · baixo · esquerda)</span>
-          <div className="row4">
-            <StyleInput ctx={ctx} prop="padding-top" label="Espaço interior em cima" />
-            <StyleInput ctx={ctx} prop="padding-right" label="Espaço interior à direita" />
-            <StyleInput ctx={ctx} prop="padding-bottom" label="Espaço interior em baixo" />
-            <StyleInput ctx={ctx} prop="padding-left" label="Espaço interior à esquerda" />
-          </div>
-        </div>
-        <div className="row2">
-          <label className="field">
-            <span>Margem em cima</span>
-            <StyleInput ctx={ctx} prop="margin-top" label="Margem em cima" />
-          </label>
-          <label className="field">
-            <span>Margem em baixo</span>
-            <StyleInput ctx={ctx} prop="margin-bottom" label="Margem em baixo" />
-          </label>
-        </div>
-        <span className="hint">Números sem unidade são píxeis. {device === 'desktop' ? 'Aplica-se a todos os ecrãs, salvo ajuste noutro dispositivo.' : `Aplica-se só a ecrãs de ${deviceLabel.toLowerCase()} ou menores.`}</span>
-      </Section>
+      <StyleInspector
+        editor={editor}
+        component={c}
+        device={device}
+        openGroups={openGroups}
+        onToggleGroup={onToggleGroup}
+        onPickBackground={onPickBackground}
+        commitStyle={(patch) => apply(() => setOwnStyle(editor, c, device, patch))}
+        refresh={refresh}
+      />
     </>
   );
 }
