@@ -37,6 +37,33 @@
   // Fase de captura: o canvas do editor interrompe a propagação dos cliques (seleção).
   doc.addEventListener('click', function (ev) {
     var t = ev.target;
+    // Pré-visualização: ligações para páginas do projeto («/slug») não navegam no iframe (que
+    // abriria rotas da aplicação); o editor mostra a página pedida. Âncoras (#) e endereços
+    // externos mantêm o comportamento habitual. No canvas (modo editor) nada disto se aplica.
+    if (mode === 'preview') {
+      var anchor = closest(t, 'a[href]');
+      var target = anchor ? anchor.getAttribute('href') || '' : '';
+      if (target.charAt(0) === '/' && target.charAt(1) !== '/') {
+        ev.preventDefault();
+        if (window.parent && window.parent !== window) window.parent.postMessage({ bolt: 'navigate', href: target }, '*');
+        return;
+      }
+      // Âncora: num documento srcdoc o «#» resolveria contra o endereço da aplicação e o iframe
+      // sairia da página. Faz-se o deslocamento que uma âncora faz numa página publicada.
+      if (target.charAt(0) === '#') {
+        ev.preventDefault();
+        var id;
+        try {
+          id = decodeURIComponent(target.slice(1));
+        } catch {
+          id = target.slice(1);
+        }
+        var dest = id ? doc.getElementById(id) : null;
+        if (dest) dest.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        else if (!id) window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+    }
     var toggle = closest(t, '[data-bolt-type="menu-toggle"]');
     if (toggle) {
       toggleMenu(toggle);
@@ -61,6 +88,11 @@
   }, true);
 
   doc.addEventListener('keydown', function (ev) {
+    // Na pré-visualização, Escape com o foco dentro do iframe chega à janela-mãe (que decide).
+    if (ev.key === 'Escape' && mode === 'preview' && window.parent && window.parent !== window) {
+      window.parent.postMessage({ bolt: 'escape' }, '*');
+      return;
+    }
     if (ev.key !== 'Enter' && ev.key !== ' ') return;
     var t = ev.target;
     if (!t || !t.matches) return;
@@ -375,6 +407,10 @@
   function start() {
     scan();
     previewNotices();
+    // Pré-visualização com foco (ex.: antes/depois do assistente): mostra o elemento em causa.
+    var focus = mode === 'preview' && doc.body ? doc.body.getAttribute('data-bolt-focus') : null;
+    var target = focus ? doc.getElementById(focus) : null;
+    if (target) target.scrollIntoView({ block: 'center' });
     if (window.MutationObserver) {
       new MutationObserver(function (list) {
         for (var i = 0; i < list.length; i++) {

@@ -44,8 +44,8 @@ const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;
  * sem envio). O iframe tem de ter `sandbox="allow-scripts"` (sem allow-same-origin): origem
  * opaca, sem acesso à aplicação, sem navegação do topo e sem envio de formulários.
  */
-export function previewDocument(data: GrapesProjectData, opts: { interactive?: boolean; scroll?: boolean; origin?: string } = {}): string {
-  const { html, css } = renderProjectHtml(data);
+export function previewDocument(data: GrapesProjectData, opts: { interactive?: boolean; scroll?: boolean; origin?: string; pageId?: string; focusId?: string } = {}): string {
+  const { html, css } = renderProjectHtml(data, opts.pageId);
   const { script, style } = runtimeUrls(opts.origin);
   const csp = [
     "default-src 'none'",
@@ -57,14 +57,18 @@ export function previewDocument(data: GrapesProjectData, opts: { interactive?: b
     "form-action 'none'",
     "base-uri 'none'",
   ].join('; ');
-  const body = html.startsWith('<body') ? html : `<body>${html}</body>`;
+  const plain = html.startsWith('<body') ? html : `<body>${html}</body>`;
+  // Elemento em foco (antes/depois do assistente): contornado e mostrado pelo runtime.
+  const focus = opts.focusId ? escapeAttr(opts.focusId) : '';
+  const body = focus ? plain.replace(/^<body/, `<body data-bolt-focus="${focus}"`) : plain;
+  const focusCss = focus ? `[id="${focus}"]{outline:3px dashed #f59e0b;outline-offset:4px}` : '';
   const runtime = opts.interactive ? `<script src="${escapeAttr(script)}" data-mode="preview"></script>` : '';
   return [
     '<!doctype html><html><head><meta charset="utf-8">',
     `<meta http-equiv="Content-Security-Policy" content="${escapeAttr(csp)}">`,
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<link rel="stylesheet" href="${escapeAttr(style)}">`,
-    `<style>${opts.scroll ? '' : 'html{overflow:hidden}'}${css.replace(/<\/style/gi, '<\\/style')}</style>`,
+    `<style>${opts.scroll ? '' : 'html{overflow:hidden}'}${focusCss}${css.replace(/<\/style/gi, '<\\/style')}</style>`,
     '</head>',
     body.replace(/<\/body>\s*$/, `${runtime}</body>`),
     '</html>',

@@ -163,7 +163,7 @@ export function LayersPanel({ editor }: { editor: Editor }) {
 
   return (
     <div className="panel-scroll">
-      <div className="panel-title">Estrutura da página</div>
+      <div className="panel-title">Camadas</div>
       {error && (
         <p className="error-text" role="alert" style={{ padding: '0 8px' }}>
           {error}

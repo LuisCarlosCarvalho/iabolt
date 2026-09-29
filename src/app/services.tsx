@@ -1,5 +1,6 @@
 import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { LocalAiAdminClient, ServerAiAdminClient, type AiAdminClient } from '../admin/aiAdminClient';
 import { LocalAssetStore, SupabaseAssetStore, type AssetStore } from '../assets/assetStore';
 import { ENGINE_VERSION } from '../engine/createBoltEditor';
 import { IndexedDbRepository } from '../persistence/indexedDbRepository';
@@ -34,6 +35,8 @@ export interface AppServices {
   imports: ImportLog;
   /** Só em modo servidor. */
   auth: { client: SupabaseClient; email: string } | null;
+  /** Configurações de IA (função ai-admin) e estado público do assistente. */
+  ai: AiAdminClient;
 }
 
 const ServicesContext = createContext<AppServices | null>(null);
@@ -52,7 +55,7 @@ let localServices: AppServices | null = null;
 function getLocalServices(): AppServices {
   if (!localServices) {
     const library = new IndexedDbTemplateLibrary();
-    localServices = { mode: 'local', catalog: new IndexedDbRepository(ENGINE_VERSION), assets: new LocalAssetStore(), library, imports: library, auth: null };
+    localServices = { mode: 'local', catalog: new IndexedDbRepository(ENGINE_VERSION), assets: new LocalAssetStore(), library, imports: library, auth: null, ai: new LocalAiAdminClient() };
   }
   return localServices;
 }
@@ -66,10 +69,11 @@ export function ServerServicesProvider({ client, session, children }: { client: 
   const catalog = useMemo(() => new SupabaseRepository(client, ENGINE_VERSION), [client]);
   const assets = useMemo(() => new SupabaseAssetStore(client), [client]);
   const library = useMemo(() => new SupabaseTemplateLibrary(client, ENGINE_VERSION), [client]);
+  const ai = useMemo(() => new ServerAiAdminClient(client), [client]);
   const email = session.user.email ?? '';
   const value = useMemo<AppServices>(
-    () => ({ mode: 'server', catalog, assets, library, imports: library, auth: { client, email } }),
-    [catalog, assets, library, client, email],
+    () => ({ mode: 'server', catalog, assets, library, imports: library, auth: { client, email }, ai }),
+    [catalog, assets, library, client, email, ai],
   );
   return <ServicesContext.Provider value={value}>{children}</ServicesContext.Provider>;
 }

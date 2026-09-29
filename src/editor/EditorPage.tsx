@@ -1,6 +1,6 @@
 import type { Component, Editor } from 'grapesjs';
 import 'grapesjs/dist/css/grapes.min.css';
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ArrowUpLeft, Copy, LayoutTemplate, Monitor, Redo2, Save, Smartphone, Tablet, Trash2, Undo2 } from 'lucide-react';
+import { AlertTriangle, ArrowDown, Eye, ArrowLeft, ArrowUp, ArrowUpLeft, Copy, LayoutTemplate, Monitor, Redo2, Save, Smartphone, Tablet, Trash2, Undo2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ModeBadge } from '../app/AppShell';
 import { Link, navigate } from '../app/router';
@@ -11,13 +11,21 @@ import { resolveForDisplay } from '../assets/resolveForDisplay';
 import type { BoltDocument, GrapesProjectData } from '../contract/boltDocument';
 import { createBoltEditor, getProjectData } from '../engine/createBoltEditor';
 import { canvasRuntimeConfig, followSelectionInCarousels } from '../engine/runtime';
+import { GLOBAL_EVENT, trackGlobalStyles } from '../engine/globalStyles';
 import { contentHint, displayName } from '../engine/labels';
 import { duplicate, moveBy, remove, selectParent } from '../engine/operations';
 import { deviceById, type DeviceId } from '../engine/styles';
 import { ProjectNotFoundError, type PersistenceMode, type ProjectSummary } from '../persistence/repository';
 import { SaveQueue, type SaveState } from '../persistence/saveQueue';
 import { SaveTemplateDialog } from '../library/SaveTemplateDialog';
-import { BlocksPanel } from './BlocksPanel';
+import { BlocksPanel, type InsertTarget } from './BlocksPanel';
+import { ImagesPanel } from './ImagesPanel';
+import { PagesPanel } from './PagesPanel';
+import { AiAssistantPanel } from './AiAssistantPanel';
+import { GlobalStylesPanel } from './GlobalStylesPanel';
+import { HistoryPageNotice } from './HistoryPageNotice';
+import { ProjectPreview } from './ProjectPreview';
+import { toolById, ToolRail, type ToolId } from './ToolRail';
 import { CanvasToolbar } from './CanvasToolbar';
 import { ImageDialog } from './ImageDialog';
 import { LayersPanel } from './LayersPanel';
@@ -129,13 +137,17 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
   const [saveError, setSaveError] = useState<string | null>(null);
   const [revision, setRevision] = useState(doc.revision);
   const [device, setDeviceState] = useState<DeviceId>('desktop');
-  const [leftTab, setLeftTab] = useState<'layers' | 'blocks'>('layers');
+  // Ferramenta do painel esquerdo (null = recolhido). Estrutura aberta por omissão.
+  const [leftTool, setLeftTool] = useState<ToolId | null>('layers');
+  // Destino levado do «+» contextual para o painel Adicionar.
+  const [insertTarget, setInsertTarget] = useState<InsertTarget | null>(null);
   const [imageTarget, setImageTarget] = useState<Component | null>(null);
   const [backgroundTarget, setBackgroundTarget] = useState<Component | null>(null);
   const [name, setName] = useState(summary.name);
   const [savedName, setSavedName] = useState(summary.name);
   const [leaving, setLeaving] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   // Contentor do canvas (referencial da barra de ferramentas contextual).
   const [canvasWrap, setCanvasWrap] = useState<HTMLDivElement | null>(null);
 
@@ -171,6 +183,8 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
     ed.on('load', () => {
       if (disposed) return;
       ed.UndoManager.clear();
+      // Variáveis ligadas a registos de dados entram no histórico; valores de partida para «Repor».
+      trackGlobalStyles(ed);
       const queue = new SaveQueue({
         repository: catalog,
         projectId: doc.projectId,
@@ -184,11 +198,35 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
         },
       });
       queueRef.current = queue;
-      ed.on('update', () => {
+      // Gravação automática NUNCA durante a edição de texto no canvas: ler o documento
+      // (getProjectData) sincroniza o texto em edição e reconstrói o elemento, o que mudava o cursor
+      // de sítio a meio da escrita. Espera pelo fim da edição e volta a agendar.
+      let waitingForText = false;
+      const flushWhenIdle = () => {
+        if (disposed) return;
+        if (ed.getEditing()) {
+          if (!waitingForText) {
+            waitingForText = true;
+            ed.once('rte:disable', () => {
+              waitingForText = false;
+              window.clearTimeout(timer);
+              timer = window.setTimeout(flushWhenIdle, AUTOSAVE_MS);
+            });
+          }
+          return;
+        }
+        void queue.flush();
+      };
+      const changed = () => {
         queue.markDirty();
         window.clearTimeout(timer);
-        timer = window.setTimeout(() => void queue.flush(), AUTOSAVE_MS);
-      });
+        timer = window.setTimeout(flushWhenIdle, AUTOSAVE_MS);
+      };
+      ed.on('update', changed);
+      // Criar, eliminar, renomear e reordenar páginas não emitem «update» no motor.
+      ed.on('page:add page:remove page:update', changed);
+      // Registos de dados (variáveis do Studio) não emitem «update».
+      ed.on(GLOBAL_EVENT, changed);
       // Pronto só quando a seleção por clique está ativa: o motor desliga-a enquanto ajusta o canvas.
       const ready = () => {
         if (!disposed) setEditor(ed);
@@ -305,7 +343,7 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
   );
 
   return (
-    <div className="editor">
+    <div className={`editor ${leftTool ? '' : 'is-left-collapsed'}`}>
       <header className="editor-top">
         <IconButton label="Voltar aos projetos" data-testid="back-to-projects" onClick={() => void goBack()}>
           <ArrowLeft />
@@ -339,6 +377,9 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
           <span className="save-dot" aria-hidden="true" />
           {editor ? saveLabel(saveState, mode) : 'A preparar o editor…'}
         </span>
+        <Button data-testid="open-preview" disabled={!editor} onClick={() => setPreviewing(true)}>
+          <Eye aria-hidden="true" /> Pré-visualizar
+        </Button>
         <Button data-testid="save-as-template" disabled={!editor} onClick={() => setSavingTemplate(true)}>
           <LayoutTemplate aria-hidden="true" /> Guardar como template
         </Button>
@@ -347,18 +388,19 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
         </Button>
       </header>
 
-      <aside className="side side-left" aria-label="Estrutura e componentes">
-        <div className="tabs" role="tablist">
-          <button type="button" role="tab" className="tab" aria-selected={leftTab === 'layers'} onClick={() => setLeftTab('layers')}>
-            Estrutura
-          </button>
-          <button type="button" role="tab" className="tab" aria-selected={leftTab === 'blocks'} onClick={() => setLeftTab('blocks')} data-testid="tab-blocks">
-            Adicionar
-          </button>
-        </div>
-        {editor && leftTab === 'layers' && <TickedLayers editor={editor} />}
-        {editor && leftTab === 'blocks' && <BlocksPanel editor={editor} onImageInserted={setImageTarget} />}
-      </aside>
+      <ToolRail active={leftTool} onSelect={setLeftTool} />
+      {leftTool && (
+        <aside className="side side-left" id="left-panel" aria-label={toolById(leftTool)?.hint} data-testid="left-panel" data-tool={leftTool}>
+          {editor && leftTool === 'layers' && <TickedPages editor={editor} />}
+          {editor && leftTool === 'layers' && <TickedLayers editor={editor} />}
+          {editor && leftTool === 'styles' && <TickedGlobalStyles editor={editor} />}
+          {editor && leftTool === 'ai' && <TickedAi editor={editor} projectId={doc.projectId} device={device} />}
+          {editor && leftTool === 'blocks' && <TickedBlocks editor={editor} onImageInserted={setImageTarget} target={insertTarget} onClearTarget={() => setInsertTarget(null)} />}
+          {editor && leftTool === 'images' && (
+            <TickedImages editor={editor} projectId={doc.projectId} urls={urls} {...(summary.workspaceId ? { workspaceId: summary.workspaceId } : {})} />
+          )}
+        </aside>
+      )}
 
       <section className="main" aria-label="Canvas">
         {saveState === 'conflict' && (
@@ -378,11 +420,23 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
             </div>
           </div>
         )}
+        {editor && <HistoryPageNotice editor={editor} />}
         {editor && <FormNotice editor={editor} />}
         {editor ? <ContextBar editor={editor} /> : <div className="context-bar" />}
         <div className="canvas-wrap" ref={setCanvasWrap}>
           <div className="canvas-host" ref={canvasRef} data-testid="canvas" />
-          {editor && canvasWrap && <CanvasToolbar editor={editor} host={canvasWrap} onReplaceImage={setImageTarget} onImageInserted={setImageTarget} />}
+          {editor && canvasWrap && (
+            <CanvasToolbar
+              editor={editor}
+              host={canvasWrap}
+              onReplaceImage={setImageTarget}
+              onImageInserted={setImageTarget}
+              onOpenBlocksPanel={(target) => {
+                setInsertTarget(target);
+                setLeftTool('blocks');
+              }}
+            />
+          )}
           {!editor && (
             <div className="canvas-overlay"><Spinner label="A preparar o editor…" /></div>
           )}
@@ -418,6 +472,8 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
           onClose={() => setBackgroundTarget(null)}
         />
       )}
+
+      {editor && <ProjectPreview editor={editor} open={previewing} onClose={() => setPreviewing(false)} />}
 
       <SaveTemplateDialog
         open={savingTemplate}
@@ -457,6 +513,31 @@ function TickedLayers({ editor }: { editor: Editor }) {
   return <LayersPanel editor={editor} />;
 }
 
+function TickedPages({ editor }: { editor: Editor }) {
+  useEditorTick(editor);
+  return <PagesPanel editor={editor} />;
+}
+
+function TickedAi(props: Parameters<typeof AiAssistantPanel>[0]) {
+  useEditorTick(props.editor);
+  return <AiAssistantPanel {...props} />;
+}
+
+function TickedGlobalStyles({ editor }: { editor: Editor }) {
+  useEditorTick(editor);
+  return <GlobalStylesPanel editor={editor} />;
+}
+
+function TickedBlocks(props: Parameters<typeof BlocksPanel>[0]) {
+  useEditorTick(props.editor);
+  return <BlocksPanel {...props} />;
+}
+
+function TickedImages(props: Parameters<typeof ImagesPanel>[0]) {
+  useEditorTick(props.editor);
+  return <ImagesPanel {...props} />;
+}
+
 function TickedProperties(props: { editor: Editor; device: DeviceId; onReplaceImage: (c: Component) => void; onPickBackground: (c: Component) => void; footer: ReactNode }) {
   useEditorTick(props.editor);
   return <PropertiesPanel {...props} />;
@@ -467,10 +548,10 @@ function HistoryButtons({ editor }: { editor: Editor }) {
   const um = editor.UndoManager;
   return (
     <div className="device-tabs" role="group" aria-label="Histórico">
-      <IconButton label="Desfazer (Ctrl+Z)" data-testid="undo" disabled={!um.hasUndo()} onClick={() => um.undo()}>
+      <IconButton label="Desfazer (Ctrl+Z)" data-testid="undo" disabled={!um.hasUndo()} onClick={() => editor.runCommand('core:undo')}>
         <Undo2 />
       </IconButton>
-      <IconButton label="Refazer (Ctrl+Shift+Z)" data-testid="redo" disabled={!um.hasRedo()} onClick={() => um.redo()}>
+      <IconButton label="Refazer (Ctrl+Shift+Z)" data-testid="redo" disabled={!um.hasRedo()} onClick={() => editor.runCommand('core:redo')}>
         <Redo2 />
       </IconButton>
     </div>

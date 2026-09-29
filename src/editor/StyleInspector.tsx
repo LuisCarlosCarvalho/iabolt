@@ -1,7 +1,8 @@
 import type { Component, Editor } from 'grapesjs';
-import { AlignCenter, AlignJustify, AlignLeft, AlignRight, ChevronRight, ImageUp, Link2, Link2Off, Monitor, RotateCcw, Smartphone, Tablet, X } from 'lucide-react';
+import { AlignCenter, AlignJustify, AlignLeft, AlignRight, ChevronRight, ImageUp, Info, Link2, Link2Off, Monitor, RotateCcw, Smartphone, Tablet, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { IconButton } from '../app/ui';
+import { isGlobalSelector } from '../engine/globalStyles';
 import { createContinuousEdit, styleSources, type ValueSource } from '../engine/styleSources';
 import { deviceById, getOwnStyle, type DeviceId, type EditableProp, type StylePatch } from '../engine/styles';
 import { DraftInput } from './DraftInput';
@@ -42,7 +43,7 @@ export function toHex(color: string): string {
   return `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`;
 }
 
-const FONTS: Array<[string, string]> = [
+export const FONTS: Array<[string, string]> = [
   ["'Inter', 'Segoe UI', system-ui, sans-serif", 'Sem serifa (Inter)'],
   ["Georgia, 'Times New Roman', serif", 'Com serifa (Georgia)'],
   ["'Trebuchet MS', 'Segoe UI', sans-serif", 'Humanista (Trebuchet)'],
@@ -346,6 +347,36 @@ function GroupBox({ id, title, open, onToggle, children, count }: { id: Group; t
   );
 }
 
+/**
+ * Explica quando uma alteração em «Estilos globais» não chega a este elemento: a fonte ou a cor
+ * vêm de um valor próprio (neste ou noutro dispositivo) ou de uma regra mais específica.
+ */
+function GlobalOverrideNote({ ctx }: { ctx: Ctx }) {
+  const notes = (['font-family', 'color'] as const).flatMap((prop) => {
+    const s = ctx.sources.get(prop);
+    const name = prop === 'color' ? 'A cor do texto' : 'A fonte';
+    if (!s) return [];
+    if (s.kind === 'own') return [`${name} é própria deste elemento: os Estilos globais não a alteram aqui. «Repor» volta a seguir o estilo global.`];
+    if (s.kind === 'device') return [`${name} é própria deste elemento (definida em ${s.label}): os Estilos globais não a alteram aqui.`];
+    const selector = s.label.split(' · ')[0] ?? '';
+    if (s.kind === 'rule' && !isGlobalSelector(selector)) return [`${name} vem de «${s.label}», uma regra mais específica do que os Estilos globais: alterá-los não muda este elemento.`];
+    return [];
+  });
+  if (notes.length === 0) return null;
+  return (
+    <div className="global-note" role="note" data-testid="global-override-note">
+      <Info aria-hidden="true" />
+      <div>
+        {notes.map((n) => (
+          <p key={n} style={{ margin: 0 }}>
+            {n}
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const GROUP_PROPS: Record<Group, EditableProp[]> = {
   typography: ['font-family', 'font-size', 'font-weight', 'line-height', 'color', 'text-align'],
   layout: ['display', 'flex-direction', 'justify-content', 'align-items', 'flex-wrap', 'gap', 'row-gap', 'column-gap', 'grid-template-columns'],
@@ -430,6 +461,7 @@ export function StyleInspector({
             </div>
             <TextField ctx={ctx} prop="line-height" label="Altura de linha" />
             <ColorField ctx={ctx} prop="color" label="Cor do texto" />
+            <GlobalOverrideNote ctx={ctx} />
             <Field ctx={ctx} prop="text-align" label="Alinhamento">
               <div className="segmented" role="group" aria-label="Alinhamento do texto">
                 {(

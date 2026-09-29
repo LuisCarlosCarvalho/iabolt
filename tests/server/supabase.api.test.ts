@@ -144,6 +144,16 @@ describe('Supabase real · conta B não acede ao que é de A', () => {
     const stillThere = (await new SupabaseAssetStore(a).resolve([imageRef])).get(imageRef);
     expect(stillThere).toBeDefined();
   });
+
+  it('biblioteca de imagens: A volta a encontrar a imagem carregada; B não vê as imagens do workspace de A', async () => {
+    const mine = await new SupabaseAssetStore(a).listLibrary({ workspaceId, projectId });
+    const found = mine.find((it) => it.ref === imageRef);
+    expect(found?.display).toMatch(/^https:\/\/.+token=/);
+    // Listar só lê: a imagem continua lá e nada foi apagado.
+    expect((await new SupabaseAssetStore(a).resolve([imageRef])).has(imageRef)).toBe(true);
+    const theirs = await new SupabaseAssetStore(b).listLibrary({ workspaceId, projectId }).catch(() => []);
+    expect(theirs).toEqual([]);
+  });
 });
 
 describe('Supabase real · sem sessão', () => {

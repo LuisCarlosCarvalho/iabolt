@@ -125,7 +125,214 @@ npm run test:server
 npm run test:e2e:server
 ```
 
+## Atualização de 29/09/2026 · painel esquerdo por ferramentas (não publicado)
+
+Trabalho **ainda sem commit** no ramo `fase-1-primeira-versao` (a produção continua em `c50ed79`).
+
+| Área | Estado |
+| --- | --- |
+| Barra vertical (Adicionar, Estrutura, Imagens), painel ao lado, recolher; canvas ganha o espaço sem mudar a largura do dispositivo | implementado e testado (local) |
+| Adicionar: pesquisa por nome, categorias (Estrutura, Texto, Média, Ações), destino do «+» legível e cancelável. Se o destino for eliminado ou deixar de aceitar, avisa e não insere noutro sítio | implementado e testado (local) |
+| Imagens: secções «Nesta página» e «Disponíveis no workspace» (servidor) ou «Carregadas nesta sessão» (local); «Substituir» e «Inserir» separados; abrir, listar e carregar não alteram o documento | implementado; local testado; servidor **por testar** |
+
+**Imagens carregadas e não usadas:**
+
+- **Servidor:** o ficheiro já ficava guardado em `project-assets/<workspace>/library/`; faltava listá-lo. `SupabaseAssetStore.listLibrary` lê essa pasta (e a pasta antiga do projeto) **só em leitura**. Não precisou de migração nem de mudar caminhos, referências ou políticas: a leitura já está limitada a membros do workspace pela política existente.
+- **Local:** a imagem só existe dentro do documento quando é usada; se não for usada, perde-se ao recarregar. O painel di-lo explicitamente.
+  - **Proposta, por aprovar:** uma loja «assets» na base IndexedDB local, que passa para a versão 3. É uma mudança do contrato de armazenamento local, por isso não foi feita.
+- **Os nomes originais dos ficheiros não são guardados** (os caminhos usam um identificador), por isso não há pesquisa por nome de imagem. Guardá-los seria outra mudança de contrato (metadados no carregamento), para decidir.
+
+**Testes novos no Supabase real (por executar):**
+
+- `npm run test:server`: listagem da biblioteca e isolamento (a conta B não vê as imagens do workspace de A);
+- `npm run test:e2e:server`: carregar sem inserir → F5 → disponível → inserir → guardar → reabrir, com referência estável.
+
+### Proposta de estilos globais do site (entretanto implementada, ver `docs/12-estilos-globais.md`)
+
+Entrega própria, a aprovar. Serve para editar o **tema do site** (o que os visitantes veem) e é independente do tema Claro/Escuro/Automático da interface do Bolt IA.
+
+- **Onde vive:** variáveis do site dentro do documento: `--bolt-*` nos templates do produto e `--gjs-t-*` nos projetos importados do Studio, que já são preservadas. Nunca os tokens `--ui-*` da interface.
+- **O que se edita:** cores (primária, texto, títulos, fundo), fontes (corpo, títulos), raio e espaçamentos base, com pré-visualização no canvas.
+- **Variáveis importadas:** são editadas no lugar onde já existem, sem as renomear nem normalizar. As que não forem reconhecidas ficam listadas só para leitura.
+- **Histórico e gravação:** o mesmo fluxo do inspetor (um passo por alteração), gravado no documento do projeto.
+- **Na barra esquerda:** entra como nova ferramenta «Estilos globais» só quando estiver pronta.
+
+## Atualização de 29/09/2026 · Páginas e camadas (não publicado)
+
+Trabalho **sem commit** no ramo `fase-1-primeira-versao`. Análise e decisões em `docs/11-paginas.md`.
+
+- **O que foi feito:**
+  - várias páginas por projeto: criar, mudar o nome, duplicar, eliminar e escolher a inicial;
+  - cada página mostra as suas camadas na mesma árvore;
+  - ligações entre páginas por `/slug`.
+- **Compatibilidade:** sem migração. Projetos e templates antigos abrem como uma página. As importações mantêm todas as páginas e os respetivos nomes.
+- **Correção incluída:** ao duplicar (página ou elemento), as regras CSS compostas que referem ids passam também para a cópia. Antes, o menu móvel copiado não abria.
+
+### Fecho de Páginas e camadas (29/09/2026)
+
+| Ponto | Implementado | Testado localmente | Validado no Supabase |
+| --- | --- | --- | --- |
+| Pré-visualização: ligações entre páginas, «Voltar», destino inexistente, âncoras, externos | sim | sim (unitário e E2E) | não se aplica |
+| Correção: âncora na pré-visualização saía do documento; agora desloca dentro da página | sim | sim (E2E) | não se aplica |
+| Slugs únicos e estáveis; colisão com `/inicio` antigo; importação com nomes repetidos | sim | sim (unitário e E2E) | pendente (percurso abaixo) |
+| Referências internas das cópias (`#id`, `for`, ARIA); externas preservadas | sim | sim (unitário e E2E) | não se aplica |
+| Aviso de desfazer/refazer noutra página, com «Ver página» sem passo | sim | sim (unitário e E2E) | não se aplica |
+| Várias páginas no servidor (gravação automática, F5, Dashboard, template) | teste escrito | não se aplica | **pendente**: `npm run test:e2e:server` |
+
+- **Sondas temporárias:**
+  - `tests/unit/zz-pages-probe.test.ts` foi removido e não existe.
+  - Não ficaram outras sondas desta tarefa no projeto.
+- **Testes permanentes mantidos:**
+  - `tests/unit/pages.test.ts`;
+  - `tests/e2e/pages.spec.ts`;
+  - `tests/e2e/left-panel.spec.ts`;
+  - o novo percurso em `tests/e2e-server/server.spec.ts`.
+
+### Estado dos testes no Supabase real (pendentes, nenhum executado pelo agente)
+
+| Comando | Casos por executar |
+| --- | --- |
+| `npm run test:server` | biblioteca de templates e registo de importações (2); listagem e isolamento da biblioteca de imagens (1) |
+| `npm run test:e2e:server` | imagem de fundo no inspetor (1); imagem carregada sem inserir → F5 → disponível (1); **percurso de várias páginas** (1); **estilos globais** (1) |
+
+O percurso de várias páginas está em `tests/e2e-server/server.spec.ts`, no teste «várias páginas: …». Cobre:
+
+- criar a segunda página e mudar-lhe o nome, com gravação automática;
+- conteúdo, estilo (padding) e imagem na segunda página, com gravação automática, sem «Guardar»;
+- definir a página inicial;
+- reabrir pela Dashboard e confirmar a ordem, a página inicial, os slugs, o texto, o estilo e a imagem assinada;
+- no `project_data`: slugs, `type: main` e a referência `bolt-asset:` sem URL assinado;
+- guardar como template e criar uma cópia pela biblioteca, com as duas páginas;
+- confirmar que editar a cópia não altera o original.
+
+Usa as contas de teste e a limpeza existentes. Os templates criados pelo teste são arquivados no fim (só esses, pelo nome).
+
+O percurso de estilos globais está no teste «estilos globais: …». Cobre:
+
+- abrir o painel sem gravar nada;
+- mudar a cor dos títulos e a fonte dos títulos, cada uma com gravação automática;
+- F5 e reabrir pela Dashboard;
+- confirmar as variáveis no `project_data`;
+- guardar como template;
+- confirmar que uma cópia editada não altera o template nem o original.
+
+Os templates criados pelo teste são arquivados pela mesma limpeza.
+
+## Atualização de 29/09/2026 · Estilos globais (não publicado)
+
+Trabalho **sem commit**. Análise, decisões e limitações em `docs/12-estilos-globais.md`.
+
+| Ponto | Implementado | Testado localmente | Validado no Supabase |
+| --- | --- | --- | --- |
+| Ferramenta «Estilos globais» (paleta) com Cores, Tipografia e Elementos; aviso «afetam todas as páginas» | sim | sim (E2E) | não se aplica |
+| Abrir o painel não altera o documento (Nimbus, Studio, Elementor) | sim | sim (unitário e E2E) | pendente (percurso remoto) |
+| Variáveis do Studio editadas no registo, com a ligação, o nome e o âmbito preservados | sim | sim (unitário e E2E) | não se aplica |
+| Cor e fonte partilhadas com efeito em duas páginas; valor próprio e regras de telemóvel preservados | sim | sim (unitário e E2E, nas 3 origens) | não se aplica |
+| Aviso no inspetor quando uma regra própria ou mais específica prevalece | sim | sim (E2E) | não se aplica |
+| «Criar estilos globais» explícito em projetos sem configuração (Elementor) | sim | sim (unitário e E2E) | não se aplica |
+| Desfazer/refazer (um passo por arrasto de cor); «Repor» e «Repor tudo» sem apagar regras | sim | sim (unitário e E2E) | não se aplica |
+| Guardar, F5, reabrir; template e cópia independente | sim | sim (E2E, modo local) | **teste escrito, por executar**: `npm run test:e2e:server` |
+| Menus e carrosséis continuam funcionais | sim | sim (E2E, amostra Studio) | não se aplica |
+| Correção: páginas novas ou duplicadas herdam as classes do corpo (ex.: `gjs-t-body`) | sim | sim (unitário e E2E) | não se aplica |
+| Correção: Escape fecha a pré-visualização mesmo com o foco no iframe, respeita diálogos por cima e devolve o foco ao botão | sim | sim (E2E) | não se aplica |
+
+- **Sondas temporárias:** as sondas desta tarefa foram removidas (`zz-global-probe.test.ts`, `zz-debug-temp.spec.ts` e `zz-capturas-temp.spec.ts`).
+- **Testes permanentes novos:**
+  - `tests/unit/globalStyles.test.ts`;
+  - `tests/e2e/global-styles.spec.ts`;
+  - o percurso remoto em `tests/e2e-server/server.spec.ts`.
+
+### Refinamento visual (29/09/2026)
+
+Cada campo mostra primeiro um nome amigável (ex.: «Cor principal», «Fonte usada nos títulos»). A variável, o seletor e o nome original do ficheiro ficam numa linha secundária. Os campos ligados a variáveis mostram «Segue «…»» em vez de `var(--…)`. As associações não mudaram. Está coberto pelos testes unitários e E2E.
+
+### Próximas entregas
+
+1. **Assistente IA** (plano em `docs/09`, com os pontos de revisão). As opções de fornecedor serão apresentadas antes de escolher, com o servidor a guardar a chave. Não há nada implementado.
+
+## Atualização de 29/09/2026 · Assistente IA, versão 1 (não publicado, não ativado)
+
+Trabalho **sem commit**. Detalhes em `docs/14-assistente-ia-v1.md`; fornecedor, custos revistos e decisões em `docs/13`.
+
+- **Implementado e testado localmente, com o simulador:**
+  - o painel «Assistente IA» sobre o elemento selecionado (texto, ligação, nível do título, estilos próprios por dispositivo);
+  - o contrato de operações, o contexto com herança e variáveis, e a validação em três pontos;
+  - a versão local do documento, o antes/depois, a confirmação, o desfazer único e a falha restaurada sem tocar no histórico.
+- **Escrito para revisão, não aplicado:**
+  - a função `ai-propose`, com o adaptador Anthropic e o modelo `claude-sonnet-5-5` como candidato;
+  - a migração `ai_usage`, com reserva atómica, limites e orçamento.
+- **Sem chaves, sem chamadas pagas.**
+- **Correção incluída (erro anterior, encontrado nos testes):** desfazer uma mudança de texto num título de template deixava o canvas vazio.
+  - Causa: `setText` deixava o texto antigo em `content`.
+  - Agora é limpo no mesmo passo, o que também evita que o texto antigo e o novo coexistam na exportação.
+  - Há um teste de regressão em `tests/e2e/editor-direct.spec.ts`.
+- **Pendente:**
+  - aplicar a migração;
+  - publicar a função;
+  - configurar a chave;
+  - executar `BOLT_AI_PILOT=1 npm run test:ai-pilot`;
+  - decidir os limites e ativar `VITE_AI_ASSISTANT=server`.
+
+## Atualização de 29/09/2026 · Estabilização antes da ativação (sem novas capacidades)
+
+- **Antes/depois do assistente** com a largura e o breakpoint do dispositivo escolhido:
+  - só a escala muda; antes e depois têm as mesmas dimensões;
+  - há «Ampliar pré-visualização»;
+  - validado no computador e no telemóvel: a prévia corresponde ao resultado aplicado.
+- **Falha real de texto — investigada e corrigida na aplicação:**
+  - **Separação:**
+    - os erros «UNKNOWN: open …trace» eram bloqueios do OneDrive sobre os artefactos do Playwright;
+    - a asserção «Cópia editada» + texto antigo, ou texto «rodado» («ia editadaCóp»), era um erro real.
+  - **Reprodução:** 5 falhas em 24 repetições com 8 workers.
+  - **Causa:** a gravação automática, agendada por uma alteração anterior, disparava a meio da escrita. Ler o documento (`getProjectData` → `storeData` do GrapesJS) força `sync:content` do texto em edição e reconstrói o elemento, e o cursor saltava para o início.
+  - **Correção:** a gravação automática espera pelo fim da edição de texto (`rte:disable`) e volta a agendar. A gravação explícita (botão, Ctrl+S) mantém-se. O painel do assistente também não lê o documento durante a edição.
+  - **Resultado:** 24/24 com a mesma carga. Há um teste de regressão novo («escrita lenta com gravação automática pendente»), que **falha sem a correção** e passa com ela. No teste antigo, a espera passou a ser por um estado observável (foco no elemento em edição), sem atrasos nem asserções mais fracas.
+- **Artefactos do Playwright** (traces nas falhas, vídeos, relatório) em `%TEMP%\bolt-ia-playwright`, fora do OneDrive. Pode mudar-se com `BOLT_PW_ARTIFACTS`.
+- **Orçamento revisto** (`docs/14`):
+  - a reserva passou a ter um limite com condições explícitas e verificadas na bateria real;
+  - repetições reservadas antes;
+  - consumo desconhecido conta pelo máximo;
+  - pedidos duplicados recusados antes da chamada;
+  - reservas sem acerto expiram pelo valor reservado;
+  - preços por modelo obrigatórios;
+  - interruptor `AI_ENABLED`.
+- **Ativação:** a sequência para este projeto, em PowerShell, está em `docs/15-ativacao-piloto-ia.md`. Nada foi executado.
+- **Instabilidade restante da suíte local, resolvida pela configuração:**
+  - Com os artefactos fora do OneDrive, os traces das falhas passaram a ser gravados. Mostraram que as falhas restantes eram **tempos totais** de percursos longos (30 s por teste) e não asserções nem esperas presas.
+  - Os testes afetados mudavam de corrida para corrida.
+  - **Causa:** 8 workers em paralelo, mais o servidor Vite e o OneDrive na mesma máquina.
+  - **Correção:** `workers: 4` em `playwright.config.ts`. Não houve alterações a testes nem a asserções (as tentativas de alargar tempos por teste foram revertidas).
+  - **Resultado:** duas corridas completas seguidas, 58 passaram e 0 falharam.
+- **Nenhuma migração foi aplicada nem nenhuma função publicada.**
+  - A frase de trabalho «Now I'll apply that migration» estava errada: o passo seguinte foi editar o **ficheiro local** da migração (nunca aplicado) e executá-lo só no PGlite em memória.
+  - Não houve nenhum comando `supabase` (CLI), `psql` nem SQL remoto, e a CLI nunca foi ligada a um projeto (não existe `supabase/.temp`).
+  - O Supabase remoto não foi alterado.
+- **Próxima entrega proposta:** Configurações de IA pela interface (administradores, chave no Vault, fonte única de configuração, auditoria). Ver `docs/16-configuracoes-ia-proposta.md`. Nada implementado.
+
+## Atualização de 30/09/2026 · Configurações de IA (implementado localmente; nada aplicado)
+
+- **Migração de consumo:** continua **só no código**. Não foi aplicada no Supabase remoto; confirmado sem comandos remotos.
+- **Painel «Configurações de IA»:**
+  - configuração central, só para administradores da plataforma;
+  - chave no Vault;
+  - teste de ligação sem custo;
+  - ativar e desativar;
+  - limites e orçamento;
+  - consumo confirmado, estimado e reservado;
+  - registo de alterações.
+- **Detalhes e estado dos testes:** `docs/16`. **Ativação:** `docs/15`, que já não passa a chave pelo terminal.
+- **Mudanças nas migrações pendentes** (nenhuma aplicada):
+  - `ai_reserve` passou para `20260930120000` e lê a configuração central;
+  - `ai_usage` ganhou o instantâneo de modelo e preços e o custo confirmado/desconhecido separado.
+- **Teste do piloto real corrigido:**
+  - Nimbus escolhido pelo nome;
+  - `var(--bolt-primary)` confirmado no documento gravado;
+  - mudar a cor global faz o título acompanhar;
+  - reabertura pela Dashboard;
+  - confirmação prévia de que o assistente está ativo (`ai_status`).
+  - Há um espelho `[simulado]` do mesmo percurso no E2E local.
+
 ## Próximo passo para amanhã
 
-1. Executar `npm run test:server` e `npm run test:e2e:server`, e registar aqui os resultados. Estes testes validam a biblioteca, o registo de importações e a imagem de fundo no Supabase real.
-2. Rever `docs/09-plano-assistente-ia.md`, sobretudo os quatro pontos de revisão, e decidir se a próxima entrega é a IA ou mais uma parte do editor (classes e estados, cores e fontes globais).
+1. Executar `npm run test:server` e `npm run test:e2e:server`, e registar aqui os resultados. Estes testes validam a biblioteca de templates, o registo de importações, a imagem de fundo, a listagem e o isolamento das imagens do workspace, o percurso de várias páginas e a persistência dos estilos globais, no Supabase real.
+2. Rever a função `ai-propose` e a migração `ai_usage`. Se autorizar, seguir `docs/15-ativacao-piloto-ia.md` (aplicar só a nova migração, segredos, função, testes do Supabase, bateria real e percurso real pela interface). Nada foi contratado nem configurado.

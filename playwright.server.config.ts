@@ -1,4 +1,6 @@
 import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
 /**
@@ -10,14 +12,22 @@ if (existsSync('.env.local')) process.loadEnvFile('.env.local');
 
 const PORT = 5176;
 
+/**
+ * Artefactos (traces, vídeos, capturas, relatório) FORA da pasta do projeto: a pasta está no
+ * OneDrive, cuja sincronização bloqueava ficheiros de trace durante os testes («UNKNOWN: open»).
+ * Os traces continuam a ser guardados nas falhas. Pode mudar-se o destino com BOLT_PW_ARTIFACTS.
+ */
+const ARTIFACTS = process.env.BOLT_PW_ARTIFACTS ?? join(tmpdir(), 'bolt-ia-playwright');
+
 export default defineConfig({
+  outputDir: join(ARTIFACTS, 'test-results-server'),
   testDir: 'tests/e2e-server',
   fullyParallel: false,
   workers: 1,
   retries: 0,
   timeout: 90_000,
   expect: { timeout: 15_000 },
-  reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report-server' }]],
+  reporter: [['list'], ['html', { open: 'never', outputFolder: join(ARTIFACTS, 'report-server') }]],
   use: { baseURL: `http://localhost:${PORT}`, trace: 'retain-on-failure', screenshot: 'only-on-failure' },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {

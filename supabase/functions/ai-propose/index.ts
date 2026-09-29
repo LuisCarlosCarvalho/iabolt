@@ -1,0 +1,103 @@
+/**
+ * Função `ai-propose` (Supabase Edge Function, Deno). PARA REVISÃO: não foi publicada.
+ *
+ * Configuração: FONTE ÚNICA na base de dados (`ai_settings`, gerida no painel «Configurações de IA»),
+ * lida em cada pedido. A chave vem do Supabase Vault (`ai_provider_key`, só papel de serviço).
+ * Variáveis de ambiente: só as da infraestrutura (fornecidas pelo Supabase), AI_ALLOWED_ORIGINS e
+ * o interruptor de emergência AI_FORCE_DISABLED=true (só desliga; nunca liga).
+ */
+import { createClient } from '@supabase/supabase-js';
+import { handlePropose, type LimitReason } from '../_shared/ai/handler.ts';
+import { RuntimeSettings } from '../_shared/ai/limits.ts';
+import { anthropicProvider } from '../_shared/ai/provider.ts';
+import { corsHeaders, json } from '../_shared/http.ts';
+
+const env = (name: string): string | undefined => Deno.env.get(name);
+const required = (name: string): string => {
+  const v = env(name);
+  if (!v) throw new Error(`Configuração em falta: ${name}`);
+  return v;
+};
+
+// Fornecidas pelo Supabase a todas as funções.
+const SUPABASE_URL = required('SUPABASE_URL');
+const ANON_KEY = required('SUPABASE_ANON_KEY');
+const service = createClient(SUPABASE_URL, required('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false } });
+const FORCE_DISABLED = env('AI_FORCE_DISABLED') === 'true';
+
+const REASONS: readonly LimitReason[] = ['disabled', 'config_changed', 'forbidden', 'duplicate', 'user_day', 'workspace_day', 'user_concurrency', 'workspace_concurrency', 'budget'];
+
+Deno.serve(async (request: Request) => {
+  const headers = corsHeaders(request.headers.get('origin'), env('AI_ALLOWED_ORIGINS'));
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+  if (request.method !== 'POST') return new Response('Método não permitido', { status: 405, headers });
+  const result = await handlePropose(request.headers.get('authorization'), await request.text(), {
+    forceDisabled: FORCE_DISABLED,
+    now: () => Date.now(),
+    async getUser(header) {
+      const token = header?.replace(/^Bearer\s+/i, '') ?? '';
+      if (!token) return null;
+      const { data, error } = await service.auth.getUser(token);
+      return error || !data.user ? null : { id: data.user.id };
+    },
+    async projectWorkspace(header, projectId) {
+      // Cliente com a sessão do utilizador: a RLS de `projects` decide o acesso.
+      const asUser = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: header } }, auth: { persistSession: false } });
+      const { data, error } = await asUser.from('projects').select('workspace_id').eq('id', projectId).maybeSingle();
+      return error || !data ? null : String(data.workspace_id);
+    },
+    async loadRuntime() {
+      const { data, error } = await service.rpc('ai_runtime_settings');
+      if (error || !data) return null;
+      const parsed = RuntimeSettings.safeParse(data);
+      return parsed.success ? parsed.data : null;
+    },
+    async providerKey() {
+      const { data, error } = await service.rpc('ai_provider_key');
+      return error || typeof data !== 'string' || !data ? null : data;
+    },
+    makeProvider(runtime, key) {
+      return anthropicProvider({ apiKey: key, model: runtime.model, fetch });
+    },
+    async reserve(r) {
+      const { data, error } = await service.rpc('ai_reserve', {
+        p_request_id: r.requestId,
+        p_user_id: r.userId,
+        p_workspace_id: r.workspaceId,
+        p_project_id: r.projectId,
+        p_reserve_usd: r.reserveUsd,
+        p_model: r.model,
+        p_prices: r.prices,
+      });
+      if (error) throw new Error('Reserva falhou.');
+      const row = Array.isArray(data) ? data[0] : data;
+      const reason = row && typeof row === 'object' ? Reflect.get(row, 'reason') : null;
+      const id = row && typeof row === 'object' ? Reflect.get(row, 'reservation_id') : null;
+      if (typeof id === 'string') return { ok: true, id };
+      return { ok: false, reason: REASONS.find((x) => x === reason) ?? 'budget' };
+    },
+    async settle(id, s) {
+      const { error } = await service.rpc('ai_settle', {
+        p_id: id,
+        p_status: s.status,
+        p_input_tokens: s.usage.inputTokens,
+        p_output_tokens: s.usage.outputTokens,
+        p_cache_read_tokens: s.usage.cacheReadTokens,
+        p_cache_write_tokens: s.usage.cacheWriteTokens,
+        p_confirmed_cost_usd: s.confirmedCostUsd,
+        p_unknown_cost_usd: s.unknownCostUsd,
+        p_attempts: s.attempts,
+        p_unknown_attempts: s.unknownAttempts,
+        p_latency_ms: s.latencyMs,
+        p_error: s.error ?? null,
+      });
+      // Se o acerto falhar, a reserva fica aberta e conta pelo máximo (ver ai_expire_stale).
+      if (error) console.error('ai_settle falhou');
+    },
+    async release(id) {
+      const { error } = await service.rpc('ai_release', { p_id: id });
+      if (error) console.error('ai_release falhou');
+    },
+  });
+  return json(result.status, result.body, headers);
+});

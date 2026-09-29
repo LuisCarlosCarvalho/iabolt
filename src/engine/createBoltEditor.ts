@@ -42,9 +42,12 @@ export function getProjectData(editor: Editor): GrapesProjectData {
 }
 
 /** HTML e CSS exportados de um projeto (pré-visualizações; nunca a forma persistida). */
-export function renderProjectHtml(projectData: GrapesProjectData): { html: string; css: string } {
+export function renderProjectHtml(projectData: GrapesProjectData, pageId?: string): { html: string; css: string } {
   const editor = createBoltEditor({ projectData });
   try {
+    // Sem página indicada: a inicial (a que o motor abre).
+    const page = pageId ? editor.Pages.get(pageId) : undefined;
+    if (page) editor.Pages.select(page);
     return { html: editor.getHtml(), css: editor.getCss() ?? '' };
   } finally {
     editor.destroy();

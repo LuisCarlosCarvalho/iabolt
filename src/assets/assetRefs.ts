@@ -67,6 +67,11 @@ export class AssetUrlMap {
     this.toRef.set(url, ref);
   }
 
+  /** Referência estável de um URL de visualização (ou o próprio valor, se não for um URL temporário). */
+  refOf(url: string): string {
+    return this.toRef.get(url) ?? url;
+  }
+
   /** Documento para mostrar: referências trocadas por URLs (as não resolvidas ficam como estão). */
   forDisplay(data: GrapesProjectData): GrapesProjectData {
     return this.toUrl.size ? projectDataSchema.parse(replaceAll(data, this.toUrl)) : data;

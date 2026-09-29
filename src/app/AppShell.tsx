@@ -1,5 +1,5 @@
 import { Cloud, HardDrive, LogOut, Monitor, Moon, Sun } from 'lucide-react';
-import { useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Link, useRoute } from './router';
 import { useServices } from './services';
 import { useThemePreference, type ThemePreference } from './theme';
@@ -77,7 +77,18 @@ export function ModeBadge({ compact = false }: { compact?: boolean }) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const route = useRoute();
-  const { auth } = useServices();
+  const { auth, ai } = useServices();
+  // Só apresentação: a entrada aparece a administradores; cada ação é verificada no servidor.
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    ai.isAdmin()
+      .then((v) => alive && setIsAdmin(v))
+      .catch(() => alive && setIsAdmin(false));
+    return () => {
+      alive = false;
+    };
+  }, [ai]);
   return (
     <div className="shell">
       <header className="shell-head">
@@ -92,6 +103,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link to="/templates" aria-current={route.name === 'templates' ? 'page' : undefined}>
             Templates
           </Link>
+          {isAdmin && (
+            <Link to="/configuracoes/ia" aria-current={route.name === 'ai-settings' ? 'page' : undefined} data-testid="nav-ai-settings">
+              Configurações de IA
+            </Link>
+          )}
         </nav>
         <div className="shell-spacer" />
         <ModeBadge />

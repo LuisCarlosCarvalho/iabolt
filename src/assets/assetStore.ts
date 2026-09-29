@@ -16,6 +16,19 @@ export interface AssetStore {
   upload(file: File, ctx?: { projectId?: string; workspaceId?: string }): Promise<UploadedAsset>;
   /** URLs para mostrar referências guardadas. As que não é possível resolver ficam de fora. */
   resolve(refs: readonly string[]): Promise<Map<string, string>>;
+  /**
+   * Imagens já carregadas que podem ser reutilizadas (só leitura: nunca apaga nem altera).
+   * Só no servidor: em modo local as imagens vivem dentro do documento e não há biblioteca.
+   */
+  listLibrary?(ctx?: { workspaceId?: string; projectId?: string }): Promise<LibraryImage[]>;
+}
+
+/** Imagem da biblioteca do workspace: referência estável + URL temporário para mostrar. */
+export interface LibraryImage {
+  ref: string;
+  display: string;
+  createdAt: string | null;
+  size: number | null;
 }
 
 export const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/avif'] as const;
@@ -128,6 +141,33 @@ export class SupabaseAssetStore implements AssetStore {
     const display = (await this.resolve([ref])).get(ref);
     if (!display) throw new Error('A imagem foi carregada, mas o servidor não devolveu um endereço para a mostrar.');
     return { stored: ref, display, name: file.name };
+  }
+
+  /**
+   * Lista (só leitura) as imagens do workspace: a biblioteca `<ws>/library/` e, se indicado, a
+   * pasta antiga do projeto `<ws>/<projeto>/`. A política de leitura do Storage já limita a
+   * membros do workspace; nada é apagado nem alterado.
+   */
+  async listLibrary(ctx: { workspaceId?: string; projectId?: string } = {}): Promise<LibraryImage[]> {
+    const workspaceId = ctx.workspaceId ?? (await this.defaultWorkspace());
+    const folders = [`${workspaceId}/library`, ...(ctx.projectId ? [`${workspaceId}/${ctx.projectId}`] : [])];
+    const found: Array<{ path: string; createdAt: string | null; size: number | null }> = [];
+    for (const folder of folders) {
+      const { data, error } = await this.client.storage.from(ASSET_BUCKET).list(folder, { limit: 200, sortBy: { column: 'created_at', order: 'desc' } });
+      if (error) throw new Error(`Não foi possível listar as imagens: ${error.message}`);
+      for (const f of data) {
+        if (!f.id) continue; // subpasta
+        const size = typeof f.metadata?.size === 'number' ? f.metadata.size : null;
+        found.push({ path: `${folder}/${f.name}`, createdAt: f.created_at, size });
+      }
+    }
+    if (found.length === 0) return [];
+    const urls = await this.resolve(found.map((f) => assetRef(f.path)));
+    return found.flatMap((f) => {
+      const ref = assetRef(f.path);
+      const display = urls.get(ref);
+      return display ? [{ ref, display, createdAt: f.createdAt, size: f.size }] : [];
+    });
   }
 
   async resolve(refs: readonly string[]): Promise<Map<string, string>> {

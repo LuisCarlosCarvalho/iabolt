@@ -54,3 +54,40 @@ IA e publicação **não aparecem na interface** enquanto não funcionarem. Na i
 | Dispositivo em edição sempre indicado; o telemóvel grava no breakpoint próprio e preserva o computador; os breakpoints importados não são normalizados | implementado e testado |
 | Histórico: um passo por alteração; interações contínuas (cor, opacidade) contam como um só passo; abrir o inspetor não altera o documento | implementado e testado |
 | Persistência no servidor da imagem de fundo (referência durável dentro de `url(...)`) e do ajuste móvel | teste acrescentado a `npm run test:e2e:server`, **por executar** |
+
+## Páginas e camadas (29/09/2026)
+
+| Área | Estado |
+| --- | --- |
+| Várias páginas por projeto: criar, mudar o nome, duplicar, eliminar (nunca a última; a inicial com aviso), página inicial, camadas da página atual, ligações entre páginas por `/slug` | implementado e testado localmente (unitário `tests/unit/pages.test.ts` e E2E `tests/e2e/pages.spec.ts`). Sem migração. Ver `docs/11` |
+| Pré-visualização com navegação entre páginas («Voltar», destino inexistente, âncoras, externos inalterados) | implementado e testado localmente (unitário e E2E). Não requer Supabase |
+| Slugs únicos (criar, duplicar, importar, colisão com `/inicio`), estáveis ao mudar o nome; referências internas das cópias (`#id`, `for`, ARIA) | implementado e testado localmente (unitário e E2E) |
+| Aviso de desfazer/refazer noutra página com «Ver página», sem passo no histórico | implementado e testado localmente (unitário e E2E) |
+| Várias páginas no Supabase real (gravação automática, inicial, slugs, estilos, imagens, template com todas as páginas) | teste escrito; **pendente de execução** com `npm run test:e2e:server` |
+| Painel esquerdo por ferramentas (Adicionar, Páginas e camadas, Imagens) | implementado e testado localmente; a listagem de imagens no servidor está por testar no Supabase |
+
+## Estilos globais (29/09/2026)
+
+| Área | Estado |
+| --- | --- |
+| Ferramenta «Estilos globais»: cores, tipografia e elementos, com as variáveis importadas preservadas (registos do Studio editados no lugar) | implementado e testado localmente (unitário `tests/unit/globalStyles.test.ts` e E2E `tests/e2e/global-styles.spec.ts`, com Nimbus e as duas amostras). Ver `docs/12` |
+| Configuração global explícita em projetos sem variáveis (Elementor) | implementado e testado localmente |
+| Persistência dos estilos globais no Supabase real (gravação automática, F5, Dashboard, template e cópia) | teste escrito; **pendente de execução** com `npm run test:e2e:server` |
+| Escape na pré-visualização e classes do corpo em páginas novas | correções implementadas e testadas localmente |
+
+## Assistente IA, versão 1 (29/09/2026)
+
+| Área | Estado |
+| --- | --- |
+| Painel, contrato, contexto, validação, antes/depois, confirmação, desfazer único, falha restaurada | implementado e testado localmente **com simulador** (unitário, PGlite e E2E marcados [simulado]). Ver `docs/14` |
+| Função `ai-propose` e migração `ai_usage` (limites, concorrência, orçamento com reserva prévia) | escritas **para revisão**; lógica testada localmente; **não aplicadas** |
+| Chamadas reais ao fornecedor (Claude Sonnet 5.5, candidato) | **pendente**: sem chave, sem chamadas pagas; bateria `npm run test:ai-pilot` preparada |
+| Correção: desfazer texto de título do template deixava o canvas vazio | corrigido e testado localmente |
+
+## Configurações de IA (30/09/2026)
+
+| Área | Estado |
+| --- | --- |
+| Painel administrativo (configuração central, chave no Vault, teste sem custo, ativar/desativar, limites, orçamento, consumo, auditoria) | implementado e testado localmente (PGlite, unitário e E2E em simulação local). Ver `docs/16` |
+| Migrações `20260929120000` e `20260930120000`, funções `ai-admin` e `ai-propose` | escritas; **não aplicadas nem publicadas** |
+| Validação no Supabase real e pedidos ao modelo real | **pendente** (`docs/15`) |

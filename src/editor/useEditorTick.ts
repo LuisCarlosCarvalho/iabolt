@@ -17,6 +17,12 @@ const EVENTS = [
   'device:select',
   'rte:enable',
   'rte:disable',
+  'page:select',
+  'page:add',
+  'page:remove',
+  'page:update',
+  // Estilos globais (inclui desfazer/refazer de variáveis ligadas a registos de dados).
+  'bolt:global-styles',
 ].join(' ');
 
 const versions = new WeakMap<Editor, { n: number }>();

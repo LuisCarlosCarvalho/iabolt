@@ -1,4 +1,5 @@
 import type { Component, ComponentDefinition, Editor } from 'grapesjs';
+import { cloneScopedRules, idMapOf, remapReferences } from './cloneRules';
 
 /** Operações do editor sobre o modelo do motor, endereçadas por id estável. */
 
@@ -58,10 +59,20 @@ export function isPlainText(c: Component): boolean {
 /** Conteúdo como nó de texto: o que o utilizador escreve nunca é interpretado como HTML. */
 const asTextNode = (text: string): ComponentDefinition[] => [{ type: 'textnode', content: text }];
 
+/**
+ * Substitui o texto de um elemento. Os textos dos templates guardam o conteúdo em `content`; esse
+ * valor é limpo no mesmo passo, para não coexistir com o novo texto (exportação) e para que
+ * desfazer reponha os dois e o canvas volte a mostrá-lo.
+ */
+function replaceText(c: Component, text: string): void {
+  if (c.get('content')) c.set('content', '');
+  c.components(asTextNode(text));
+}
+
 export function setText(editor: Editor, id: string, text: string): void {
   const c = requireById(editor, id);
   if (!isTextLike(c)) throw new Error(`Componente ${id} não é texto`);
-  c.components(asTextNode(text));
+  replaceText(c, text);
 }
 
 export interface LinkPatch {
@@ -76,7 +87,7 @@ export function setLink(editor: Editor, id: string, patch: LinkPatch): void {
   if (!hasHref(c)) throw new Error(`Componente ${id} não é uma ligação`);
   if (patch.text !== undefined) {
     if (!isLink(c)) throw new Error(`O bloco de ligação ${id} não tem texto próprio`);
-    c.components(asTextNode(patch.text));
+    replaceText(c, patch.text);
   }
   if (patch.href !== undefined) c.addAttributes({ href: patch.href });
   if (patch.newTab === true) c.addAttributes({ target: '_blank', rel: 'noopener noreferrer' });
@@ -195,6 +206,10 @@ export function duplicate(editor: Editor, id: string): Component {
   const clone = source.clone();
   const [added] = parent.append(clone, { at: source.index() + 1 });
   if (!added) throw new Error('Falha ao inserir o clone');
+  // Regras compostas que referem os ids da origem (menu móvel, ::before, CSS importado).
+  const ids = idMapOf(source, added);
+  cloneScopedRules(editor, ids);
+  remapReferences(added, ids);
   editor.select(added);
   return added;
 }

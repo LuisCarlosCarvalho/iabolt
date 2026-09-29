@@ -1,0 +1,114 @@
+BOLT IA · RESUMO DO TRABALHO E PRÓXIMAS ATIVIDADES
+Data: 30/09/2026
+Ramo: fase-1-primeira-versao (produção na Vercel: umbulab/bolt2, ramo master)
+Supabase: projeto quihhoszhtivzwhcvnsd
+
+======================================================================
+1. O QUE FOI FEITO (desde a última publicação, c50ed79)
+======================================================================
+
+1.1 Painel esquerdo por ferramentas
+  - Barra vertical: Adicionar, Páginas e camadas, Imagens, Estilos globais, Assistente IA.
+  - Adicionar: pesquisa, categorias e destino do «+».
+  - Imagens: «Nesta página» e «Disponíveis no workspace»; Substituir e Inserir separados.
+
+1.2 Páginas e camadas
+  - Várias páginas por projeto: criar, mudar o nome, duplicar, eliminar e escolher a inicial.
+  - Ligações entre páginas por /slug.
+  - Slugs únicos e estáveis; referências internas das cópias (#id, for, ARIA) corrigidas.
+  - Pré-visualização com navegação entre páginas, «Voltar» e aviso de destino inexistente.
+  - Aviso quando o desfazer altera outra página, com «Ver página».
+
+1.3 Estilos globais
+  - Cores, tipografia e elementos (títulos, texto, ligações, botões), com nomes amigáveis.
+  - Variáveis importadas do GrapesJS Studio preservadas.
+  - «Criar estilos globais» para projetos sem configuração (Elementor).
+  - Aviso no inspetor quando um valor próprio prevalece sobre o estilo global.
+  - Um só passo de desfazer por alteração; «Repor» e «Repor tudo».
+
+1.4 Assistente IA, versão 1 (elemento selecionado)
+  - Edita texto, ligação, nível do título e estilos próprios por dispositivo.
+  - Pedido → proposta validada → antes/depois à largura real do dispositivo (com «Ampliar»)
+    → aplicar com um único desfazer.
+  - Validação em três pontos: servidor antes, servidor depois e editor.
+  - A proposta fica inválida se o documento mudar.
+  - Falha durante a aplicação: o documento é reposto e o histórico fica intacto.
+  - Conteúdo importado tratado como dados, nunca como instruções.
+  - Em modo local usa um simulador (identificado como tal).
+
+1.5 Orçamento e controlo de consumo
+  - Reserva do custo MÁXIMO antes de cada chamada (atómica, com bloqueio global).
+  - Consumo desconhecido conta pelo máximo, nunca como zero.
+  - Pedidos repetidos são recusados.
+  - Reservas sem acerto expiram pelo valor reservado.
+
+1.6 Configurações de IA (painel administrativo em /configuracoes/ia)
+  - Configuração CENTRAL, gerida só por administradores da plataforma (tabela platform_admins),
+    verificada no servidor em todas as ações. Email admin@… ou ser owner NÃO dá acesso.
+  - Chave do fornecedor guardada no Supabase Vault; o painel mostra só «Chave configurada …1234».
+  - «Testar ligação» sem custo: consulta o modelo. NÃO prova a geração; isso só o piloto prova.
+  - Substituir uma chave que falha mantém a anterior.
+  - Ativar/desativar; limites e orçamento; consumo confirmado, estimado e reservado; registo de
+    alterações sem segredos.
+  - Assistente DESATIVADO por omissão.
+
+1.7 Correções de erros encontrados pelos testes
+  - Desfazer a mudança de texto de um título do template deixava o canvas vazio.
+  - A gravação automática disparava a meio da escrita e fazia o cursor saltar (texto «rodado»).
+    Agora espera pelo fim da edição de texto.
+  - Escape fecha a pré-visualização mesmo com o foco dentro dela.
+  - Páginas novas herdam as classes do corpo (estilos globais do Studio).
+
+1.8 Estabilidade dos testes
+  - Artefactos do Playwright fora do OneDrive (%TEMP%\bolt-ia-playwright).
+  - E2E local com 4 processos (antes 8: percursos longos excediam o tempo por carga).
+  - Nota: o OneDrive ainda causa, de vez em quando, falhas de leitura de ficheiros nos testes
+    unitários (não são erros do código; repetir resolve).
+
+======================================================================
+2. PASSOS JÁ EXECUTADOS NO SUPABASE REMOTO (por si, guiado)
+======================================================================
+  1. CLI ligada ao projeto (login + link).
+  2. Histórico: as 4 migrações já aplicadas foram verificadas uma a uma (tabelas, funções, bucket,
+     estrutura de ai_usage igual ao ficheiro, RLS e permissões) e registadas com migration repair.
+  3. Vault verificado (0.3.1, permissões corretas).
+  4. Migração 20260930120000_configuracoes_ia aplicada; verificação: 3 modelos, configuração
+     «false / none / claude-sonnet-5-5», utilizadores comuns sem acesso à chave nem à administração.
+  5. A sua conta atribuída como primeiro administrador (a entrada «Configurações de IA» aparece).
+  6. Funções ai-admin e ai-propose publicadas; AI_ALLOWED_ORIGINS=http://localhost:5173.
+     O painel carrega do servidor real.
+
+======================================================================
+3. TESTES (último estado)
+======================================================================
+  - npm run check: typecheck, lint, testes (16 ficheiros, 141 testes), build e diff-check OK.
+  - E2E local: 60 passaram, 0 falharam (2 ignorados: teste visual que só corre com BOLT_VISUAL=1),
+    em duas corridas seguidas.
+  - Base de dados local (PGlite): autorização administrativa, Vault simulado, reservas e orçamento.
+  - Por executar no Supabase real: npm run test:server e npm run test:e2e:server.
+  - Por executar com o modelo real (pago): bateria do piloto e percurso pela interface.
+
+======================================================================
+4. PRÓXIMAS ATIVIDADES (por ordem)
+======================================================================
+  1. Deploy do frontend na Vercel (este passo).
+  2. Autorizar o site publicado nas funções (no PowerShell):
+       npx supabase secrets set AI_ALLOWED_ORIGINS=http://localhost:5173,https://bolt2-lake.vercel.app
+  3. No painel «Configurações de IA»: introduzir a chave (só no painel), confirmar o modelo
+     (Claude Sonnet 5.5) e os limites (orçamento de 25 USD). Manter DESATIVADO.
+  4. Testes no Supabase real (sem custo de IA):
+       npm run test:server
+       npm run test:e2e:server
+  5. Piloto pago (cerca de 0,08 USD no total), com o assistente ativado no painel:
+       $env:BOLT_AI_PILOT = "1"
+       npm run test:ai-pilot
+       npx playwright test --config playwright.server.config.ts ai-pilot.spec.ts
+       Remove-Item Env:BOLT_AI_PILOT
+     Rever o acerto, a latência, o consumo e o limite de reserva (withinInputBound/withinReservation).
+  6. Decidir os valores finais do piloto (orçamento, limites) e usar com 1 ou 2 pessoas.
+  7. Etapas seguintes do assistente: secções e páginas; inserir, mover, duplicar e eliminar;
+     estilos globais com âmbito «Site inteiro».
+  8. Recomendação: mover o projeto para fora do OneDrive (menos falhas intermitentes nos testes).
+
+Documentos de referência: docs/10 (continuidade), docs/14 (assistente), docs/15 (ativação),
+docs/16 (Configurações de IA).

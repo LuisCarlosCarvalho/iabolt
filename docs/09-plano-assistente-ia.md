@@ -1,6 +1,6 @@
 # Assistente de IA no editor · plano (não implementado)
 
-Estado: **proposta**. Nada disto existe no código. A implementação precisa da sua autorização, porque cria recursos externos: chave de um fornecedor de IA e função no servidor.
+Estado: **proposta**. Nada disto existe no código. A proposta concreta (fornecedor, custos, configuração e escopo da 1.ª entrega) está em `docs/13-proposta-assistente-ia.md`. A implementação precisa da sua autorização, porque cria recursos externos: chave de um fornecedor de IA e função no servidor.
 
 ## Princípio
 

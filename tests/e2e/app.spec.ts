@@ -224,7 +224,7 @@ test('página em branco: adicionar secção, colunas, título, texto, imagem e b
   await page.getByRole('dialog').getByRole('button', { name: 'Criar e abrir o editor' }).click();
   await expect(page.getByTestId('save-status')).toHaveText('Alterações guardadas neste browser');
 
-  await page.getByTestId('tab-blocks').click();
+  await page.getByTestId('tool-blocks').click();
   await page.getByTestId('block-section').click();
   await expect(page.getByTestId('selected-name')).toHaveText('Secção');
   await page.getByTestId('block-columns').click();

@@ -197,6 +197,8 @@ test('duplicar com ids únicos, eliminar, editar texto pela barra, guardar, F5 e
   await expect(toolbar(page)).toBeHidden();
   const editing = frame(page).locator('[contenteditable="true"]');
   await expect(editing).toHaveCount(1);
+  // Estado observável: o foco está no elemento em edição antes de escrever.
+  await expect.poll(() => editing.evaluate((el) => el.ownerDocument.activeElement === el)).toBe(true);
   await page.keyboard.press('Control+A');
   await page.keyboard.type('Cópia editada');
   await frame(page).locator('body').click({ position: { x: 5, y: 5 } });
@@ -283,4 +285,43 @@ test('modo de armazenamento no editor é só um ícone; o estado de gravação d
   await expect(badge).toHaveAttribute('aria-label', 'Modo local · só neste browser');
   await expect(badge).toHaveText('');
   await expect(page.getByTestId('save-status')).toHaveText('Alterações guardadas neste browser');
+});
+
+test('desfazer a mudança de texto de um título do template volta a mostrar o texto original no canvas', async ({ page }) => {
+  await createNimbus(page);
+  const title = frame(page).locator('h1').first();
+  const original = (await title.textContent()) ?? '';
+  expect(original.length).toBeGreaterThan(0);
+  await title.click();
+  await page.getByTestId('prop-text').fill('Texto provisório');
+  await page.getByTestId('prop-text').press('Tab');
+  await expect(title).toHaveText('Texto provisório');
+  await page.getByTestId('undo').click();
+  await expect(title).toHaveText(original);
+  await page.getByTestId('redo').click();
+  await expect(title).toHaveText('Texto provisório');
+});
+
+test('escrita lenta com gravação automática pendente: o cursor não salta e o texto fica exatamente o escrito', async ({ page }) => {
+  await createNimbus(page);
+  const h1 = frame(page).locator('h1').first();
+  await h1.click();
+  // Uma alteração deixa a gravação automática agendada (1,2 s).
+  await page.getByTestId('ct-duplicate').click();
+  await expect(page.getByTestId('save-status')).not.toHaveText('Alterações guardadas neste browser');
+  await page.getByTestId('ct-edit-text').click();
+  const editing = frame(page).locator('[contenteditable="true"]');
+  await expect(editing).toHaveCount(1);
+  await expect.poll(() => editing.evaluate((el) => el.ownerDocument.activeElement === el)).toBe(true);
+  await page.keyboard.press('Control+A');
+  // Pessoa a escrever devagar (~2,6 s no total): a gravação automática cairia a meio da escrita.
+  await page.keyboard.type('Escrita lenta sem saltos', { delay: 110 });
+  // Enquanto se escreve, nada é gravado (ler o documento reconstruiria o elemento em edição).
+  await expect(page.getByTestId('save-status')).not.toHaveText('Alterações guardadas neste browser');
+  await frame(page).locator('body').click({ position: { x: 5, y: 5 } });
+  await expect(frame(page).locator('h1').nth(1)).toHaveText('Escrita lenta sem saltos');
+  // Terminada a edição, a gravação automática acontece.
+  await expect(page.getByTestId('save-status')).toHaveText('Alterações guardadas neste browser');
+  await page.reload();
+  await expect(frame(page).locator('h1').nth(1)).toHaveText('Escrita lenta sem saltos');
 });

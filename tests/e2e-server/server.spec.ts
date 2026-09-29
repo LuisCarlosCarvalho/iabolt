@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
+import { SupabaseTemplateLibrary } from '../../src/library/supabaseTemplateLibrary';
 import { account, cleanupProjects, projectIdFromUrl, signedIn, type Who } from '../server/testAccounts';
 
 /**
@@ -332,4 +333,232 @@ test('inspetor: imagem de fundo carregada e ajuste só no telemóvel ficam grava
   const again = frame(page).locator(`#${colId ?? ''}`);
   await expect.poll(() => again.evaluate((el) => getComputedStyle(el).backgroundImage)).toMatch(SIGNED);
   expect(await again.evaluate((el) => getComputedStyle(el).paddingTop)).not.toBe('7px');
+});
+
+test('Imagens: carregada sem inserir volta a estar disponível após F5; inserir, guardar e reabrir', async ({ page }) => {
+  await login(page, 'A');
+  await createProject(page, unique());
+  const projectId = projectIdFromUrl(page.url());
+  await page.getByTestId('tool-images').click();
+  await page.getByTestId('images-file-input').setInputFiles({ name: 'disponivel.png', mimeType: 'image/png', buffer: PNG });
+  await expect(page.getByRole('status').filter({ hasText: 'Fica disponível mesmo depois de recarregar' })).toBeVisible();
+  // Carregar não alterou o documento.
+  await expect(page.getByTestId('undo')).toBeDisabled();
+  const imgs = await frame(page).locator('img').count();
+
+  await page.reload();
+  await page.getByTestId('tool-images').click();
+  const available = page.getByTestId('images-available');
+  await expect(available.getByTestId('image-tile').first()).toBeVisible();
+  // A mais recente (a que acabou de ser carregada) aparece primeiro.
+  await available.getByTestId('image-insert').first().click();
+  await expect(frame(page).locator('img')).toHaveCount(imgs + 1);
+  await save(page);
+
+  const client = await signedIn('A');
+  try {
+    const { data } = await client.from('projects').select('project_data').eq('id', projectId).single();
+    const text = JSON.stringify(data?.project_data ?? null);
+    expect(text).toMatch(/bolt-asset:[0-9a-f-]+\/library\//);
+    expect(text).not.toMatch(/\/storage\/v1\/object\/sign\//);
+  } finally {
+    await client.auth.signOut();
+  }
+  await page.reload();
+  await expect(frame(page).locator('img')).toHaveCount(imgs + 1);
+  await expect(frame(page).locator('img[src*="/storage/v1/object/sign/"]').first()).toBeVisible();
+});
+
+/** Templates criados por esta execução (arquivados no fim; só estes). */
+const createdTemplates: string[] = [];
+test.afterAll(async () => {
+  if (createdTemplates.length === 0) return;
+  const client = await signedIn('A');
+  try {
+    const lib = new SupabaseTemplateLibrary(client, '0.23.6');
+    for (const t of await lib.list()) if (createdTemplates.includes(t.name)) await lib.archive(t.id);
+  } finally {
+    await client.auth.signOut();
+  }
+});
+
+/** Espera por uma gravação AUTOMÁTICA (sem clicar em «Guardar»): a revisão sobe e o estado volta a «guardado». */
+async function waitAutosave(page: Page, after: number): Promise<number> {
+  await expect.poll(async () => Number(await page.getByTestId('diag-revision').textContent()), { timeout: 20_000 }).toBeGreaterThan(after);
+  await expect(page.getByTestId('save-status')).toHaveText(SAVED);
+  return Number(await page.getByTestId('diag-revision').textContent());
+}
+
+test('várias páginas: gravação automática dos eventos de página, página inicial, slugs, estilos, imagens e template com todas as páginas', async ({ page }) => {
+  test.setTimeout(180_000);
+  await login(page, 'A');
+  const name = unique();
+  await createProject(page, name);
+  const projectId = projectIdFromUrl(page.url());
+  let rev = Number(await page.getByTestId('diag-revision').textContent());
+
+  // Segunda página (criar e mudar o nome são eventos de página: têm de gravar sozinhos).
+  await page.getByTestId('page-add').click();
+  rev = await waitAutosave(page, rev);
+  await page.getByTestId('page-rename').click();
+  await page.getByTestId('page-rename-input').fill('Contactos');
+  await page.getByTestId('page-rename-input').press('Enter');
+  rev = await waitAutosave(page, rev);
+
+  // Conteúdo, estilo e imagem na segunda página.
+  await page.getByTestId('tool-blocks').click();
+  await page.getByTestId('block-heading').click();
+  await page.getByTestId('prop-text').fill('Página dois gravada');
+  await page.getByTestId('prop-text').press('Tab');
+  const spacing = page.getByTestId('group-spacing');
+  if ((await spacing.getAttribute('aria-expanded')) !== 'true') await spacing.click();
+  await page.getByTestId('style-padding-top').fill('14');
+  await page.getByTestId('style-padding-top').press('Enter');
+  await page.getByTestId('tool-images').click();
+  await page.getByTestId('images-file-input').setInputFiles({ name: 'pagina2.png', mimeType: 'image/png', buffer: PNG });
+  const available = page.getByTestId('images-available');
+  await expect(available.getByTestId('image-tile').first()).toBeVisible();
+  await available.getByTestId('image-insert').first().click();
+  rev = await waitAutosave(page, rev);
+
+  // Página inicial passa a ser «Contactos» (também gravado automaticamente).
+  await page.getByTestId('tool-layers').click();
+  await page.getByTestId('page-home').click();
+  await waitAutosave(page, rev);
+
+  // Reabrir pela Dashboard.
+  await page.goto('/');
+  await page.getByRole('link', { name: `Abrir ${name}` }).click();
+  const rows = page.getByTestId('page-row');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText('Contactos');
+  await expect(rows.nth(0)).toContainText('Inicial');
+  await expect(rows.nth(0)).toContainText('/nova-pagina');
+  await expect(rows.nth(1)).toContainText('/inicio');
+  await expect(frame(page).getByText('Página dois gravada')).toBeVisible();
+  await expect.poll(() => frame(page).getByText('Página dois gravada').evaluate((el) => getComputedStyle(el).paddingTop)).toBe('14px');
+  await expect(frame(page).locator('img[src*="/storage/v1/object/sign/"]').first()).toBeVisible();
+  await rows.nth(1).click();
+  await expect(frame(page).locator('h1')).toHaveCount(1);
+
+  // No servidor: duas páginas, inicial marcada, slugs gravados, referências estáveis.
+  const client = await signedIn('A');
+  try {
+    const { data } = await client.from('projects').select('project_data').eq('id', projectId).single();
+    const stored: unknown = data?.project_data;
+    const pagesJson = JSON.stringify(stored && typeof stored === 'object' ? Reflect.get(stored, 'pages') : null);
+    const text = JSON.stringify(stored);
+    expect(pagesJson).toMatch(/"name":"Contactos"[^]*"slug":"nova-pagina"|"slug":"nova-pagina"[^]*"name":"Contactos"/);
+    expect(pagesJson).toContain('"slug":"inicio"');
+    expect(pagesJson).toContain('"type":"main"');
+    expect(text).toMatch(/bolt-asset:[0-9a-f-]+\/library\//);
+    expect(text).not.toMatch(/\/storage\/v1\/object\/sign\//);
+  } finally {
+    await client.auth.signOut();
+  }
+
+  // Guardar como template e criar uma cópia independente com todas as páginas.
+  const tplName = `${name} template`;
+  createdTemplates.push(tplName);
+  await page.getByTestId('save-as-template').click();
+  await page.getByTestId('template-name').fill(tplName);
+  await page.getByTestId('template-save').click();
+  await expect(page.getByTestId('template-saved')).toBeVisible();
+  await page.getByRole('button', { name: 'Continuar a editar' }).click();
+  await page.goto('/templates');
+  await page.getByTestId('team-template-card').filter({ hasText: tplName }).getByTestId('use-team-template').click();
+  await page.getByRole('dialog').getByLabel('Nome do projeto').fill(`${name} cópia`);
+  await page.getByRole('dialog').getByRole('button', { name: 'Criar e abrir o editor' }).click();
+  await expect(page).toHaveURL(/\/projetos\/[0-9a-f-]{36}$/);
+  created.A.push(projectIdFromUrl(page.url()));
+  await expect(page.getByTestId('save-status')).toHaveText(SAVED);
+  await expect(page.getByTestId('page-row')).toHaveCount(2);
+  await expect(page.getByTestId('page-row').nth(0)).toContainText('Contactos');
+  await expect(frame(page).getByText('Página dois gravada')).toBeVisible();
+  // Cópia independente: editar a cópia não muda o original.
+  await frame(page).getByText('Página dois gravada').click();
+  await page.getByTestId('prop-text').fill('Só na cópia');
+  await page.getByTestId('prop-text').press('Tab');
+  await page.getByTestId('save').click();
+  await expect(page.getByTestId('save-status')).toHaveText(SAVED);
+  await page.goto('/');
+  await page.getByRole('link', { name: `Abrir ${name}` }).click();
+  await expect(frame(page).getByText('Página dois gravada')).toBeVisible();
+});
+
+test('estilos globais: gravação automática, F5, reabrir pela Dashboard, template e cópia independente', async ({ page }) => {
+  test.setTimeout(180_000);
+  await login(page, 'A');
+  const name = unique();
+  await createProject(page, name);
+  const projectId = projectIdFromUrl(page.url());
+  const slot = (n: string) => page.locator(`[data-testid="global-slot"][data-name="${n}"]`);
+  const heading = () => slot('--bolt-heading').getByTestId('global-value');
+  let rev = Number(await page.getByTestId('diag-revision').textContent());
+
+  // Abrir o painel não grava nada.
+  await page.getByTestId('tool-styles').click();
+  await expect(page.getByTestId('global-styles-panel')).toBeVisible();
+  await expect(page.getByTestId('save-status')).toHaveText(SAVED);
+  expect(Number(await page.getByTestId('diag-revision').textContent())).toBe(rev);
+
+  // Cor e fonte partilhadas, cada uma gravada automaticamente.
+  await heading().fill('#b91c1c');
+  await heading().press('Enter');
+  rev = await waitAutosave(page, rev);
+  await slot('--bolt-font-heading').getByTestId('global-font').selectOption({ label: 'Com serifa (Georgia)' });
+  await waitAutosave(page, rev);
+
+  // F5 e reabrir pela Dashboard.
+  await page.reload();
+  await expect(page.getByTestId('save-status')).toHaveText(SAVED);
+  await page.goto('/');
+  await page.getByRole('link', { name: `Abrir ${name}` }).click();
+  await expect(page.getByTestId('save-status')).toHaveText(SAVED);
+  await page.getByTestId('tool-styles').click();
+  await expect(heading()).toHaveValue('#b91c1c');
+  await expect.poll(() => frame(page).locator('h2').first().evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Georgia');
+
+  // No servidor: variáveis gravadas na regra global, sem conversão dos valores próprios.
+  const client = await signedIn('A');
+  try {
+    const { data } = await client.from('projects').select('project_data').eq('id', projectId).single();
+    const text = JSON.stringify(data?.project_data);
+    expect(text).toContain('"--bolt-heading":"#b91c1c"');
+    expect(text).toContain("Georgia, 'Times New Roman', serif");
+  } finally {
+    await client.auth.signOut();
+  }
+
+  // Template e cópia independente.
+  const tplName = `${name} globais`;
+  createdTemplates.push(tplName);
+  await page.getByTestId('save-as-template').click();
+  await page.getByTestId('template-name').fill(tplName);
+  await page.getByTestId('template-save').click();
+  await expect(page.getByTestId('template-saved')).toBeVisible();
+  await page.getByRole('button', { name: 'Continuar a editar' }).click();
+  const fromTemplate = async (copyName: string) => {
+    await page.goto('/templates');
+    await page.getByTestId('team-template-card').filter({ hasText: tplName }).getByTestId('use-team-template').click();
+    await page.getByRole('dialog').getByLabel('Nome do projeto').fill(copyName);
+    await page.getByRole('dialog').getByRole('button', { name: 'Criar e abrir o editor' }).click();
+    await expect(page).toHaveURL(/\/projetos\/[0-9a-f-]{36}$/);
+    created.A.push(projectIdFromUrl(page.url()));
+    await expect(page.getByTestId('save-status')).toHaveText(SAVED);
+    await page.getByTestId('tool-styles').click();
+  };
+  await fromTemplate(`${name} cópia A`);
+  await expect(heading()).toHaveValue('#b91c1c');
+  await heading().fill('#00aa00');
+  await heading().press('Enter');
+  await page.getByTestId('save').click();
+  await expect(page.getByTestId('save-status')).toHaveText(SAVED);
+  // O template e o projeto original não mudaram.
+  await fromTemplate(`${name} cópia B`);
+  await expect(heading()).toHaveValue('#b91c1c');
+  await page.goto('/');
+  await page.getByRole('link', { name: `Abrir ${name}` }).click();
+  await page.getByTestId('tool-styles').click();
+  await expect(heading()).toHaveValue('#b91c1c');
 });

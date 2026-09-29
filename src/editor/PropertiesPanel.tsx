@@ -20,6 +20,7 @@ import {
   type CarouselConfig,
   type InputPatch,
 } from '../engine/operations';
+import { listPages, pageHref, persistMeta } from '../engine/pages';
 import { setOwnStyle, type DeviceId } from '../engine/styles';
 import { DraftInput } from './DraftInput';
 import { StyleInspector, type StyleGroup } from './StyleInspector';
@@ -158,7 +159,7 @@ function ComponentProps({
             </label>
           )}
           {link && hasHref(c) && (
-            <LinkTarget attrs={attrs} onHref={(v) => apply(() => setLink(editor, id, { href: v }))} onNewTab={(v) => apply(() => setLink(editor, id, { newTab: v }))} />
+            <LinkTarget editor={editor} attrs={attrs} onHref={(v) => apply(() => setLink(editor, id, { href: v }))} onNewTab={(v) => apply(() => setLink(editor, id, { newTab: v }))} />
           )}
         </Section>
       )}
@@ -166,7 +167,7 @@ function ComponentProps({
       {isLinkBox(c) && (
         <Section title="Ligação do bloco">
           <p className="hint" style={{ margin: 0 }}>O bloco inteiro é clicável. Os textos e imagens lá dentro editam-se selecionando-os.</p>
-          <LinkTarget attrs={attrs} onHref={(v) => apply(() => setLink(editor, id, { href: v }))} onNewTab={(v) => apply(() => setLink(editor, id, { newTab: v }))} />
+          <LinkTarget editor={editor} attrs={attrs} onHref={(v) => apply(() => setLink(editor, id, { href: v }))} onNewTab={(v) => apply(() => setLink(editor, id, { newTab: v }))} />
         </Section>
       )}
 
@@ -202,9 +203,35 @@ function ComponentProps({
   );
 }
 
-function LinkTarget({ attrs, onHref, onNewTab }: { attrs: Record<string, unknown>; onHref: (v: string) => void; onNewTab: (v: boolean) => void }) {
+function LinkTarget({ editor, attrs, onHref, onNewTab }: { editor: Editor; attrs: Record<string, unknown>; onHref: (v: string) => void; onNewTab: (v: boolean) => void }) {
+  const href = String(attrs.href ?? '');
+  const pages = listPages(editor);
+  const linked = pages.find((p) => pageHref(p.slug) === href);
   return (
     <>
+      <label className="field">
+        <span>Página do projeto</span>
+        <select
+          className="select"
+          aria-label="Ligar a uma página do projeto"
+          data-testid="prop-page-link"
+          value={linked ? linked.id : ''}
+          onChange={(e) => {
+            const page = pages.find((p) => p.id === e.target.value);
+            if (!page) return;
+            // O slug da página fica gravado no mesmo passo: a ligação não parte se o nome mudar.
+            persistMeta(editor);
+            onHref(pageHref(page.slug));
+          }}
+        >
+          <option value="">{linked ? '' : href ? 'Outro destino (abaixo)' : 'Nenhuma'}</option>
+          {pages.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} (/{p.slug})
+            </option>
+          ))}
+        </select>
+      </label>
       <label className="field">
         <span>Destino</span>
         <DraftInput label="Destino" testId="prop-href" value={String(attrs.href ?? '')} placeholder="https://… ou #secção" onCommit={(v) => onHref(v.trim())} />

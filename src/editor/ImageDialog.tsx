@@ -5,29 +5,14 @@ import type { AssetUrlMap } from '../assets/assetRefs';
 import { ACCEPTED_IMAGE_TYPES } from '../assets/assetStore';
 import { useServices } from '../app/services';
 import { Button, errorMessage, Modal } from '../app/ui';
-import { IMAGE_PLACEHOLDER } from '../engine/blocks';
 import { setImage } from '../engine/operations';
 import { setOwnStyle, type DeviceId } from '../engine/styles';
+import { httpsImageUrl, pageImages, useImageUpload } from './images';
 
 /** URL dentro de `url("...")` de um valor de background-image (o primeiro). */
 function cssUrl(value: string): string {
   const m = /url\(\s*(['"]?)(.*?)\1\s*\)/.exec(value);
   return m?.[2] ?? '';
-}
-
-/** Imagens já usadas na página (derivadas do modelo, sem lista paralela). */
-function pageImages(editor: Editor): string[] {
-  const out = new Set<string>();
-  const walk = (c: Component) => {
-    if (c.is('image')) {
-      const src = String(c.get('src') ?? c.getAttributes().src ?? '');
-      if (src && src !== IMAGE_PLACEHOLDER) out.add(src);
-    }
-    c.components().models.forEach(walk);
-  };
-  const wrapper = editor.getWrapper();
-  if (wrapper) walk(wrapper);
-  return [...out];
 }
 
 export function ImageDialog({
@@ -48,10 +33,9 @@ export function ImageDialog({
   /** Modo «imagem de fundo»: grava em background-image do elemento, no dispositivo indicado. */
   background?: { device: DeviceId };
 }) {
-  const { assets, mode } = useServices();
+  const { mode } = useServices();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { upload: uploadFile, busy, error, setError } = useImageUpload({ projectId, ...(workspaceId ? { workspaceId } : {}), urls });
   const [url, setUrl] = useState('');
   const [over, setOver] = useState(false);
 
@@ -65,30 +49,18 @@ export function ImageDialog({
   };
 
   const upload = async (file: File | undefined) => {
-    if (!file || !target) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const uploaded = await assets.upload(file, { projectId, ...(workspaceId ? { workspaceId } : {}) });
-      // O canvas mostra o URL; a gravação volta a usar a referência estável.
-      urls.register(uploaded.stored, uploaded.display);
-      apply(uploaded.display);
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-      if (inputRef.current) inputRef.current.value = '';
-    }
+    if (!target) return;
+    const src = await uploadFile(file);
+    if (inputRef.current) inputRef.current.value = '';
+    if (src) apply(src);
   };
 
   const useUrl = (e: FormEvent) => {
     e.preventDefault();
     try {
-      const parsed = new URL(url.trim());
-      if (parsed.protocol !== 'https:') throw new Error('Use um endereço https://');
-      apply(parsed.toString());
+      apply(httpsImageUrl(url));
     } catch (err) {
-      setError(err instanceof TypeError ? 'Endereço inválido.' : errorMessage(err));
+      setError(errorMessage(err));
     }
   };
 

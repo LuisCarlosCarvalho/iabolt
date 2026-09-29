@@ -58,11 +58,14 @@ export function CanvasToolbar({
   host,
   onReplaceImage,
   onImageInserted,
+  onOpenBlocksPanel,
 }: {
   editor: Editor;
   host: HTMLElement;
   onReplaceImage: (c: Component) => void;
   onImageInserted: (c: Component) => void;
+  /** Abrir o painel «Adicionar» com o destino escolhido aqui (antes, dentro ou depois). */
+  onOpenBlocksPanel?: (target: { anchorId: string; position: InsertPosition }) => void;
 }) {
   useEditorTick(editor);
   const selected = editor.getSelected();
@@ -294,6 +297,19 @@ export function CanvasToolbar({
               );
             })}
           </div>
+          {onOpenBlocksPanel && (
+            <button
+              type="button"
+              className="insert-more"
+              onClick={() => {
+                onOpenBlocksPanel({ anchorId: selected.getId(), position: inserting.position });
+                setInserting(null);
+              }}
+              data-testid="insert-open-panel"
+            >
+              Abrir no painel «Adicionar» com este destino
+            </button>
+          )}
           {error && (
             <p className="error-text" role="alert">
               {error}

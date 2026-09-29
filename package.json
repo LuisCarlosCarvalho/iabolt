@@ -15,6 +15,7 @@
     "test:e2e": "playwright test",
     "test:server": "vitest run --config vitest.server.config.ts",
     "test:e2e:server": "playwright test --config playwright.server.config.ts",
+    "test:ai-pilot": "vitest run --config vitest.ai-pilot.config.ts",
     "check": "node scripts/check.mjs"
   },
   "dependencies": {

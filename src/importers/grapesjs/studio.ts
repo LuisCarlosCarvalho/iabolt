@@ -295,7 +295,7 @@ export function convertGrapesJs(raw: unknown, fileName: string, fileSize: number
   if (variableBindings) {
     report.note(
       `Variáveis de tema do Studio preservadas (${variableBindings} ligações a «${(source.dataSources as Array<{ id?: string }> | undefined)?.map((d) => d.id).join(', ') ?? 'dataSources'}»). ` +
-        'Alterar no painel a cor de um elemento ligado a uma variável substitui a ligação por um valor fixo nesse elemento; editar as variáveis do tema ainda não está disponível na interface.',
+        'As variáveis do tema editam-se em «Estilos globais», mantendo as ligações. Alterar no inspetor a cor de um elemento ligado a uma variável substitui a ligação por um valor fixo nesse elemento.',
     );
   }
   if (studio && Array.isArray((source.custom as { plugins?: unknown[] } | undefined)?.plugins)) {

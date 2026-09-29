@@ -1,4 +1,5 @@
 import { lazy, Suspense } from 'react';
+import { AiSettingsPage } from '../admin/AiSettingsPage';
 import { LoginPage } from '../auth/LoginPage';
 import { DashboardPage } from '../dashboard/DashboardPage';
 import { EditorPage } from '../editor/EditorPage';
@@ -36,6 +37,12 @@ function Routes() {
     case 'editor':
       // `key`: mudar de projeto monta um editor novo, sem estado herdado.
       return <EditorPage key={route.projectId} projectId={route.projectId} />;
+    case 'ai-settings':
+      return (
+        <AppShell>
+          <AiSettingsPage />
+        </AppShell>
+      );
     case 'poc':
       return (
         <Suspense fallback={<div className="center-fill"><Spinner /></div>}>

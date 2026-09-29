@@ -8,9 +8,10 @@
     "strict": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node", "vite/client"]
   },
-  "include": ["vite.config.ts", "vitest.server.config.ts", "playwright.config.ts", "playwright.server.config.ts", "eslint.config.js", "tests/e2e", "tests/e2e-server", "tests/db", "tests/server"]
+  "include": ["vite.config.ts", "vitest.server.config.ts", "vitest.ai-pilot.config.ts", "playwright.config.ts", "playwright.server.config.ts", "eslint.config.js", "tests/e2e", "tests/e2e-server", "tests/db", "tests/server", "tests/ai-pilot"]
 }
