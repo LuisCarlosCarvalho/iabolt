@@ -115,7 +115,8 @@ A proposta original, que serviu de base, está a seguir.
   3. Só se o teste passar é que uma transação troca ativa ← pendente e apaga a antiga do Vault.
   4. Se falhar, a pendente é descartada, a **ativa continua** e a interface diz «A chave nova não foi aceite; mantém-se a anterior (…a1B2)».
 - **Testar ligação** (duas opções, com o custo indicado no botão):
-  - **Sem custo:** `GET /v1/models/{modelo}` do fornecedor. Valida a chave e a disponibilidade do modelo, sem gerar tokens.
+  - **Sem custo:** `GET /v1/models/{modelo}` (chave e modelo) e depois `POST /v1/messages/count_tokens` com o pedido REAL do assistente (instruções, ferramenta, esquema, parâmetros do modelo). Valida a chave, o modelo e o formato do pedido, sem gerar tokens. Se só o formato for recusado, a chave mantém-se e o assistente não é desativado: aparece um aviso com o motivo do fornecedor (é um problema do pedido, não da chave).
+  - **Estado no painel, em linhas separadas:** «Chave e modelo: reconhecidos em …, sem gerar texto» e «Geração: validada em …» (última proposta real válida, `ai_usage.status = 'done'`, com o modelo ATUAL) ou «Por validar». O teste sem custo nunca marca a geração como validada.
   - **Pedido real mínimo** (opcional, pede confirmação): 1 mensagem com `max_tokens` 5, cerca de 0,0001 USD. Passa pela reserva e pelo acerto normais, e aparece no consumo.
 - **Remover:** pede confirmação; desativa a IA (`enabled=false`) e apaga o segredo do Vault. Fica registado.
 - **Concorrência:** cada gravação envia a `version` lida. Se outra pessoa alterou entretanto, a gravação é recusada com «As configurações mudaram; recarregue». Não há sobreposição silenciosa.

@@ -174,6 +174,19 @@ Uma vez por semana (consultas em `docs/15`):
 2. Comparar `sum(cost_usd)` do mês com o consumo na consola do fornecedor. Diferenças esperadas: sempre a favor da margem (tentativas desconhecidas e reservas expiradas contam pelo máximo).
 3. Se o fornecedor mostrar **mais** do que `ai_usage`, desligar (`AI_ENABLED=false`) e investigar.
 
+## Compatibilidade com o Claude Sonnet 5.5 (corrigido a 29/09/2026)
+
+O primeiro pedido real em produção falhou com HTTP 400: `tool_choice: type "tool" and "any" are not supported for this model.` O Claude Sonnet 5.5 não aceita forçar a ferramenta (também no `count_tokens`). Correção no adaptador (`provider.ts`):
+
+- `tool_choice: {"type": "auto"}`. As instruções exigem sempre a ferramenta `propor_operacoes`.
+- **Resposta sem chamada da ferramenta** (texto livre ou `stop_reason: "refusal"`): inválida, nunca aplicada, **sem repetição** (custaria de novo, provavelmente com o mesmo resultado). A mensagem indica «O assistente respondeu sem propor operações» (ou «O modelo recusou o pedido»), com um excerto curto do texto do modelo. O consumo conta.
+- `thinking: {"type": "between_tools"}` só no Sonnet 5.5. Este modelo pensa por omissão (adaptativo, esforço «high»), e esse raciocínio conta como saída dentro de `max_tokens`, o que podia esgotar o limite antes da chamada da ferramenta. `disabled` é recusado neste modelo. Haiku 4.5 não pensa por omissão e não recebe o campo. **Opus 5.5 não foi validado** com estes parâmetros.
+- Um HTTP 4xx (exceto 429) nunca é repetido; o erro mostra o motivo do fornecedor, sem nada parecido com uma chave.
+- Validação da proposta inalterada: esquema zod, âmbito e operações permitidas no servidor, e de novo no editor.
+- **Publicação (29/09/2026):** o utilizador republicou `ai-propose` e `ai-admin` com esta correção; o terminal confirmou as duas. O frontend com as linhas «Chave e modelo» / «Geração» ainda **não** está na Vercel (precisa de commit e deploy autorizados).
+- **Geração: por validar.** Nem a publicação das funções nem o reconhecimento da chave a comprovam. Só um pedido real pela interface, com proposta válida, a valida; o resultado será registado aqui.
+- Não se usou `strict: true` (gramática garantida): o esquema atual usa `oneOf`, `propertyNames` e limites de tamanho, que o modo estrito não suporta. Adaptá-lo é uma etapa própria, a validar.
+
 ## Ativação do piloto
 
 Sequência específica deste projeto, em PowerShell: **`docs/15-ativacao-piloto-ia.md`**. Inclui:

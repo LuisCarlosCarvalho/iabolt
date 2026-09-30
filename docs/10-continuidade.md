@@ -336,3 +336,27 @@ Trabalho **sem commit**. Detalhes em `docs/14-assistente-ia-v1.md`; fornecedor, 
 
 1. Executar `npm run test:server` e `npm run test:e2e:server`, e registar aqui os resultados. Estes testes validam a biblioteca de templates, o registo de importações, a imagem de fundo, a listagem e o isolamento das imagens do workspace, o percurso de várias páginas e a persistência dos estilos globais, no Supabase real.
 2. Rever a função `ai-propose` e a migração `ai_usage`. Se autorizar, seguir `docs/15-ativacao-piloto-ia.md` (aplicar só a nova migração, segredos, função, testes do Supabase, bateria real e percurso real pela interface). Nada foi contratado nem configurado.
+
+## Atualização de 30/09/2026 · Estado da publicação (correção)
+
+- A publicação autorizada no fim de 29/09 (commit, push, Vercel) **foi interrompida e não aconteceu**. Produção e ramo de trabalho continuaram em `6744483` até aos commits de 30/09.
+- As funções `ai-propose` e `ai-admin` no Supabase são a versão de 29/09 (republicadas pelo utilizador), que até 30/09 não estava no Git.
+- Plano de publicação compatível, recuperação e piloto: `docs/19-publicacao-e-piloto.md`.
+
+## Atualização de 30/09/2026 · Assistente IA v2: edição completa (não publicado)
+
+Resumo do dia anterior em `docs/17-resumo-2026-09-29.md`. Detalhe desta entrega em `docs/18-assistente-ia-v2.md`.
+
+- **Implementado e testado localmente (simuladores):**
+  - atalho «Editar com IA» na barra do elemento;
+  - fornecedores Anthropic, OpenAI e Google Gemini, com chaves independentes e imagens configuradas à parte;
+  - âmbitos elemento, secção, página e site inteiro (pedidos grandes em partes);
+  - imagens e fundos: escolher, carregar ou gerar com confirmação do custo;
+  - estrutura: inserir, mover, duplicar e eliminar;
+  - esclarecimento em vez de adivinhar;
+  - um só desfazer, mesmo em várias páginas.
+- **Por fazer (com autorização):**
+  - aplicar a migração `20261001120000_ia_fornecedores.sql`;
+  - republicar `ai-propose` e `ai-admin` e publicar `ai-image`;
+  - deploy do frontend, em conjunto com as funções (contrato v2).
+- **Por validar (pago):** a geração real com cada fornecedor e a geração real de imagens.
