@@ -38,7 +38,8 @@ async function service<T>(sql: string, params: unknown[] = []) {
 }
 
 const version = async () => (await db.query<{ version: number }>('select version from public.ai_settings')).rows[0]?.version ?? 0;
-const dump = async () => JSON.stringify((await db.query('select * from public.ai_settings_audit')).rows) + JSON.stringify((await db.query('select * from public.ai_settings')).rows);
+const dump = async () =>
+  JSON.stringify((await db.query('select * from public.ai_settings_audit')).rows) + JSON.stringify((await db.query('select * from public.ai_settings')).rows) + JSON.stringify((await db.query('select * from public.ai_provider_keys')).rows);
 
 beforeAll(async () => {
   db = await PGlite.create();
@@ -52,8 +53,10 @@ beforeAll(async () => {
 
 describe('Configurações de IA · autorização (PGlite)', () => {
   it('por omissão: assistente desativado, sem chave, modelo suportado', async () => {
-    const s = (await db.query<{ enabled: boolean; key_status: string; model: string }>('select enabled, key_status, model from public.ai_settings')).rows[0];
-    expect(s).toEqual({ enabled: false, key_status: 'none', model: 'claude-sonnet-5-5' });
+    const s = (await db.query<{ enabled: boolean; image_enabled: boolean; model: string }>('select enabled, image_enabled, model from public.ai_settings')).rows[0];
+    expect(s).toEqual({ enabled: false, image_enabled: false, model: 'claude-sonnet-5-5' });
+    const keys = (await db.query<{ provider: string; key_status: string }>('select provider, key_status from public.ai_provider_keys order by provider')).rows;
+    expect(keys).toEqual([{ provider: 'anthropic', key_status: 'none' }, { provider: 'google', key_status: 'none' }, { provider: 'openai', key_status: 'none' }]);
   });
 
   it('owner de workspace ou email admin@… não é administrador; ai_whoami só é verdadeiro para o administrador', async () => {
@@ -68,10 +71,13 @@ describe('Configurações de IA · autorização (PGlite)', () => {
     await expect(as(EVIL, 'select * from public.ai_settings_audit')).rejects.toThrow(/permission denied/);
     await expect(as(EVIL, 'update public.ai_settings set enabled = true')).rejects.toThrow(/permission denied/);
     await expect(as(EVIL, 'select * from vault.decrypted_secrets')).rejects.toThrow(/permission denied/);
+    await expect(as(EVIL, 'select * from public.ai_provider_keys')).rejects.toThrow(/permission denied/);
     for (const call of [
       `select public.ai_admin_get('${EVIL}')`,
       `select public.ai_admin_update('${EVIL}', 1, '{"enabled": true}'::jsonb)`,
-      `select public.ai_admin_stage_key('${EVIL}', '${KEY_1}', 'AAAA', 'x')`,
+      `select public.ai_admin_stage_key_v2('${EVIL}', 'anthropic', '${KEY_1}', 'AAAA', 'x')`,
+      `select public.ai_provider_key_for('anthropic')`,
+      `select public.ai_admin_generation('${EVIL}')`,
       `select public.ai_admin_grant('${EVIL}', '${EVIL}')`,
       `select public.ai_provider_key()`,
       `select public.ai_runtime_settings()`,
@@ -84,6 +90,9 @@ describe('Configurações de IA · autorização (PGlite)', () => {
     // Estado público sem segredos.
     const status = (await as<Record<string, unknown>>(USER, 'select * from public.ai_status()')).rows[0];
     expect(Object.keys(status ?? {}).sort()).toEqual(['enabled', 'model', 'model_label', 'provider']);
+    const status2 = (await as<Record<string, unknown>>(USER, 'select * from public.ai_status_v2()')).rows[0];
+    expect(Object.keys(status2 ?? {}).sort()).toEqual(['enabled', 'image_enabled', 'image_label', 'image_model', 'image_price_usd', 'image_provider', 'max_output_tokens', 'max_parts', 'max_retries', 'model', 'model_label', 'overhead_tokens', 'prices', 'provider']);
+    expect(JSON.stringify([status, status2])).not.toMatch(/secret|key_/);
   });
 
   it('mesmo pelo papel de serviço, um ator que não é administrador é recusado', async () => {
@@ -97,30 +106,35 @@ describe('Configurações de IA · autorização (PGlite)', () => {
 
 describe('Configurações de IA · chave, versões e auditoria (PGlite)', () => {
   it('não se ativa sem chave válida; campos desconhecidos e versão antiga recusados', async () => {
-    await expect(service(`select public.ai_admin_update($1, $2, '{"enabled": true}'::jsonb)`, [ADMIN, await version()])).rejects.toThrow(/check constraint/);
+    await expect(service(`select public.ai_admin_update($1, $2, '{"enabled": true}'::jsonb)`, [ADMIN, await version()])).rejects.toThrow(/ai_settings_check/);
     await expect(service(`select public.ai_admin_update($1, $2, '{"key_status": "valid"}'::jsonb)`, [ADMIN, await version()])).rejects.toThrow(/invalid_field/);
+    // Modelo de imagem no lugar do de edição (e vice-versa): recusado pelo gatilho.
+    await expect(service(`select public.ai_admin_update_v2($1, $2, '{"provider": "google", "model": "gemini-3.1-flash-image"}'::jsonb)`, [ADMIN, await version()])).rejects.toThrow(/ai_settings_check/);
+    await expect(service(`select public.ai_admin_update_v2($1, $2, '{"image_provider": "google", "image_model": "gemini-3.8-flash"}'::jsonb)`, [ADMIN, await version()])).rejects.toThrow(/ai_settings_check/);
+    // Modelo de imagem sem preço por imagem (não suportado): recusado.
+    await expect(service(`select public.ai_admin_update_v2($1, $2, '{"image_provider": "openai", "image_model": "gpt-image-2.5-flare"}'::jsonb)`, [ADMIN, await version()])).rejects.toThrow(/ai_settings_check/);
     await expect(service(`select public.ai_admin_update($1, 999, '{"monthly_budget_usd": 5}'::jsonb)`, [ADMIN])).rejects.toThrow(/version_conflict/);
     const r = await service<{ ai_admin_update: { settings: { monthly_budget_usd: number } } }>(`select public.ai_admin_update($1, $2, '{"monthly_budget_usd": 30}'::jsonb)`, [ADMIN, await version()]);
     expect(Number(r.rows[0]?.ai_admin_update.settings.monthly_budget_usd)).toBe(30);
   });
 
   it('chave: pendente → ativa; substituição recusada mantém a anterior; resposta nunca traz a chave', async () => {
-    const staged = await service<{ ai_admin_stage_key: string }>(`select public.ai_admin_stage_key($1, $2, 'AAAA', 'fp-aaaa')`, [ADMIN, KEY_1]);
-    const id1 = staged.rows[0]?.ai_admin_stage_key ?? '';
-    const view = await service<{ ai_admin_activate_key: { settings: { key: { configured: boolean; last4: string; status: string } } } }>(`select public.ai_admin_activate_key($1, $2)`, [ADMIN, id1]);
-    expect(view.rows[0]?.ai_admin_activate_key.settings.key).toMatchObject({ configured: true, last4: 'AAAA', status: 'valid' });
+    const staged = await service<{ ai_admin_stage_key_v2: string }>(`select public.ai_admin_stage_key_v2($1, 'anthropic', $2, 'AAAA', 'fp-aaaa')`, [ADMIN, KEY_1]);
+    const id1 = staged.rows[0]?.ai_admin_stage_key_v2 ?? '';
+    const view = await service<{ ai_admin_activate_key_v2: { settings: { keys: { anthropic: { configured: boolean; last4: string; status: string } } } } }>(`select public.ai_admin_activate_key_v2($1, 'anthropic', $2)`, [ADMIN, id1]);
+    expect(view.rows[0]?.ai_admin_activate_key_v2.settings.keys.anthropic).toMatchObject({ configured: true, last4: 'AAAA', status: 'valid' });
     expect(JSON.stringify(view.rows)).not.toContain(KEY_1);
     expect((await service<{ ai_provider_key: string }>('select public.ai_provider_key()')).rows[0]?.ai_provider_key).toBe(KEY_1);
 
     // Substituição que falha no teste: descartada; a ativa mantém-se.
-    const id2 = (await service<{ ai_admin_stage_key: string }>(`select public.ai_admin_stage_key($1, $2, 'BBBB', 'fp-bbbb')`, [ADMIN, KEY_2])).rows[0]?.ai_admin_stage_key ?? '';
-    await service('select public.ai_admin_discard_key($1, $2, $3)', [ADMIN, id2, 'HTTP 401']);
+    const id2 = (await service<{ ai_admin_stage_key_v2: string }>(`select public.ai_admin_stage_key_v2($1, 'anthropic', $2, 'BBBB', 'fp-bbbb')`, [ADMIN, KEY_2])).rows[0]?.ai_admin_stage_key_v2 ?? '';
+    await service(`select public.ai_admin_discard_key_v2($1, 'anthropic', $2, $3)`, [ADMIN, id2, 'HTTP 401']);
     expect((await service<{ ai_provider_key: string }>('select public.ai_provider_key()')).rows[0]?.ai_provider_key).toBe(KEY_1);
     expect((await db.query('select id from vault.secrets')).rows).toHaveLength(1);
 
     // Substituição aceite: a anterior sai do cofre.
-    const id3 = (await service<{ ai_admin_stage_key: string }>(`select public.ai_admin_stage_key($1, $2, 'BBBB', 'fp-bbbb')`, [ADMIN, KEY_2])).rows[0]?.ai_admin_stage_key ?? '';
-    await service('select public.ai_admin_activate_key($1, $2)', [ADMIN, id3]);
+    const id3 = (await service<{ ai_admin_stage_key_v2: string }>(`select public.ai_admin_stage_key_v2($1, 'anthropic', $2, 'BBBB', 'fp-bbbb')`, [ADMIN, KEY_2])).rows[0]?.ai_admin_stage_key_v2 ?? '';
+    await service(`select public.ai_admin_activate_key_v2($1, 'anthropic', $2)`, [ADMIN, id3]);
     expect((await service<{ ai_provider_key: string }>('select public.ai_provider_key()')).rows[0]?.ai_provider_key).toBe(KEY_2);
     expect((await db.query('select id from vault.secrets')).rows).toHaveLength(1);
 
@@ -129,13 +143,13 @@ describe('Configurações de IA · chave, versões e auditoria (PGlite)', () => 
     expect((await as<{ enabled: boolean }>(USER, 'select * from public.ai_status()')).rows[0]?.enabled).toBe(true);
 
     // Teste definitivo que falha: desativa (a configuração não fica a apontar para uma chave má).
-    await service(`select public.ai_admin_record_test($1, false, 'HTTP 401')`, [ADMIN]);
+    await service(`select public.ai_admin_record_test_v2($1, 'anthropic', false, 'HTTP 401')`, [ADMIN]);
     expect((await as<{ enabled: boolean }>(USER, 'select * from public.ai_status()')).rows[0]?.enabled).toBe(false);
 
     // Remover: desativa e apaga do cofre.
-    await service('select public.ai_admin_remove_key($1, $2)', [ADMIN, await version()]);
+    await service(`select public.ai_admin_remove_key_v2($1, 'anthropic', $2)`, [ADMIN, await version()]);
     expect((await db.query('select id from vault.secrets')).rows).toHaveLength(0);
-    expect((await db.query<{ key_status: string; enabled: boolean }>('select key_status, enabled from public.ai_settings')).rows[0]).toEqual({ key_status: 'none', enabled: false });
+    expect((await db.query<{ key_status: string; enabled: boolean }>(`select k.key_status, s.enabled from public.ai_settings s, public.ai_provider_keys k where k.provider = 'anthropic'`)).rows[0]).toEqual({ key_status: 'none', enabled: false });
 
     // Auditoria: quem e quando, sem segredos.
     const audit = (await service<{ ai_admin_audit: Array<{ action: string; actor_email: string }> }>('select public.ai_admin_audit($1, 50)', [ADMIN])).rows[0]?.ai_admin_audit ?? [];
@@ -156,6 +170,6 @@ describe('Configurações de IA · chave, versões e auditoria (PGlite)', () => 
 
   it('consumo do mês separado: confirmado, desconhecido e reservado', async () => {
     const u = (await service<{ ai_admin_usage: Record<string, unknown> }>('select public.ai_admin_usage($1)', [ADMIN])).rows[0]?.ai_admin_usage;
-    expect(Object.keys(u ?? {}).sort()).toEqual(['budget_usd', 'confirmed_usd', 'in_flight', 'month', 'requests', 'reserved_usd', 'unknown_attempts', 'unknown_usd']);
+    expect(Object.keys(u ?? {}).sort()).toEqual(['budget_usd', 'confirmed_usd', 'image_usd', 'in_flight', 'month', 'requests', 'reserved_usd', 'unknown_attempts', 'unknown_usd']);
   });
 });

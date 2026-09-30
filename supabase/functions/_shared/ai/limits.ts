@@ -49,7 +49,7 @@ export const DEFAULT_LIMITS: AiLimits = {
   requestsPerUserDay: 50,
   requestsPerWorkspaceDay: 300,
   maxInstructionChars: 1000,
-  maxInputChars: 24_000,
+  maxInputChars: 90_000,
   maxOutputTokens: 1500,
   maxOperations: 10,
   maxConcurrentPerUser: 1,
@@ -67,10 +67,20 @@ const num = z.coerce.number().finite();
 /** Resultado de `ai_runtime_settings()` (configuração em vigor + preços do modelo; sem segredos). */
 export const RuntimeSettings = z.object({
   enabled: z.boolean(),
-  provider: z.enum(['anthropic']),
+  provider: z.enum(['anthropic', 'openai', 'google']),
   model: z.string().min(1).max(80),
   model_label: z.string().max(80),
+  /** Estado da chave do fornecedor de EDIÇÃO. */
   key_status: z.enum(['none', 'valid', 'invalid']),
+  image_enabled: z.boolean().default(false),
+  image_provider: z.enum(['anthropic', 'openai', 'google']).nullable().default(null),
+  image_model: z.string().max(80).nullable().default(null),
+  image_label: z.string().max(80).nullable().default(null),
+  image_key_status: z.enum(['none', 'valid', 'invalid']).default('none'),
+  /** Preços do modelo de imagem: por token e teto por imagem (USD). */
+  image_prices: z.object({ input: num, output: num, image: num.nullable() }).nullable().default(null),
+  image_requests_per_user_day: num.default(10),
+  max_parts: num.default(6),
   requests_per_user_day: num,
   requests_per_workspace_day: num,
   max_concurrent_per_user: num,

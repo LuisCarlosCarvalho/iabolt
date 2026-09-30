@@ -21,8 +21,10 @@ let wsA = '';
 /** Configuração central para o teste (como superutilizador: equivale a um administrador). */
 async function configure(patch: Record<string, number | boolean> = {}) {
   const base: Record<string, number | boolean> = { enabled: true, requests_per_user_day: 3, requests_per_workspace_day: 10, max_concurrent_per_user: 1, max_concurrent_per_workspace: 4, monthly_budget_usd: 0.05, ...patch };
+  // Chave Anthropic reconhecida (a regra «só ativa com chave válida» é verificada pelo gatilho).
+  await db.query(`update public.ai_provider_keys set key_secret_id = coalesce(key_secret_id, gen_random_uuid()), key_status = 'valid' where provider = 'anthropic'`);
   await db.query(
-    `update public.ai_settings set key_secret_id = coalesce(key_secret_id, gen_random_uuid()), key_status = 'valid', enabled = $1,
+    `update public.ai_settings set enabled = $1,
        requests_per_user_day = $2, requests_per_workspace_day = $3, max_concurrent_per_user = $4, max_concurrent_per_workspace = $5, monthly_budget_usd = $6 where id = 1`,
     [base.enabled ?? true, base.requests_per_user_day, base.requests_per_workspace_day, base.max_concurrent_per_user, base.max_concurrent_per_workspace, base.monthly_budget_usd],
   );
@@ -127,6 +129,25 @@ describe('Assistente IA · reserva, limites e orçamento (PGlite)', () => {
     expect(Number(expired?.unknown_cost_usd)).toBeCloseTo(Number(expired?.reserved_usd));
   });
 
+  it('reserva por fornecedor e tipo: edição confirma o fornecedor; imagens exigem uso ativo, chave do fornecedor e limite diário próprio', async () => {
+    await configure({ max_concurrent_per_user: 5, monthly_budget_usd: 100, requests_per_user_day: 50 });
+    const reserve9 = async (provider: string, model: string, kind: string, usd = 0.067) =>
+      (await db.query<{ reservation_id: string | null; reason: string | null }>('select * from public.ai_reserve($1, $2, $3, null, $4, $5, $6, $7::jsonb, $8)', [crypto.randomUUID(), USER_A, wsA, usd, provider, model, PRICES, kind])).rows[0];
+    expect((await reserve9('anthropic', MODEL, 'edit', 0.001))?.reason).toBeNull();
+    expect((await reserve9('openai', MODEL, 'edit', 0.001))?.reason).toBe('config_changed');
+    // Imagens desativadas por omissão.
+    expect((await reserve9('google', 'gemini-3.1-flash-image', 'image'))?.reason).toBe('disabled');
+    await db.query(`update public.ai_provider_keys set key_secret_id = gen_random_uuid(), key_status = 'valid' where provider = 'google'`);
+    await db.query(`update public.ai_settings set image_provider = 'google', image_model = 'gemini-3.1-flash-image', image_enabled = true, image_requests_per_user_day = 2`);
+    expect((await reserve9('google', 'gemini-3-pro-image', 'image'))?.reason).toBe('config_changed');
+    expect((await reserve9('google', 'gemini-3.1-flash-image', 'image'))?.reason).toBeNull();
+    expect((await reserve9('google', 'gemini-3.1-flash-image', 'image'))?.reason).toBeNull();
+    expect((await reserve9('google', 'gemini-3.1-flash-image', 'image'))?.reason).toBe('user_day');
+    const rows = (await db.query<{ provider: string; kind: string }>(`select provider, kind from public.ai_usage order by created_at`)).rows;
+    expect(rows).toEqual([{ provider: 'anthropic', kind: 'edit' }, { provider: 'google', kind: 'image' }, { provider: 'google', kind: 'image' }]);
+    await db.query(`update public.ai_settings set image_enabled = false`);
+  });
+
   it('utilizadores não chamam as funções de consumo nem escrevem na tabela; só leem o próprio consumo', async () => {
     const r = await reserve(USER_A, wsA, 0.001);
     await settle(r.reservation_id ?? '', 0.001);
@@ -140,6 +161,8 @@ describe('Assistente IA · reserva, limites e orçamento (PGlite)', () => {
       }
     };
     await expect(as(USER_A, `select * from public.ai_reserve('${crypto.randomUUID()}', '${USER_A}', '${wsA}', null, 0, '${MODEL}', '{}'::jsonb)`)).rejects.toThrow(/permission denied/);
+    await expect(as(USER_A, `select * from public.ai_reserve('${crypto.randomUUID()}', '${USER_A}', '${wsA}', null, 0, 'anthropic', '${MODEL}', '{}'::jsonb, 'edit')`)).rejects.toThrow(/permission denied/);
+    await expect(as(USER_A, `select public.ai_provider_key_for('anthropic')`)).rejects.toThrow(/permission denied/);
     await expect(as(USER_A, `select public.ai_release('${r.reservation_id ?? ''}')`)).rejects.toThrow(/permission denied/);
     await expect(as(USER_A, 'select public.ai_expire_stale(60)')).rejects.toThrow(/permission denied/);
     await expect(as(USER_A, `insert into public.ai_usage (request_id, user_id, workspace_id, reserved_usd) values ('${crypto.randomUUID()}', '${USER_A}', '${wsA}', 0)`)).rejects.toThrow(/permission denied/);

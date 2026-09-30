@@ -8,7 +8,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 // Ganchos só de desenvolvimento expostos pelo editor (ver AiAssistantPanel e ai/apply).
 declare global {
   interface Window {
-    __boltAiLastRequest?: { context: { capabilities: unknown; styles: Record<string, unknown> } };
+    __boltAiLastRequest?: { scope: { kind: string }; context: { target?: { capabilities: unknown; styles: Record<string, Record<string, unknown>> } } };
     __boltAiFailAfter?: number;
   }
 }
@@ -45,11 +45,13 @@ test('[simulado] pré-visualização, confirmação, desfazer único e persistê
   await openAi(page);
   await expect(page.getByTestId('ai-engine')).toHaveText(/Simulador · sem IA/);
   await expect(page.getByTestId('ai-scope-name')).toContainText('Título');
-  await expect(page.getByTestId('ai-caps')).toContainText('Ligação (não se aplica)');
-  // Só a ação implementada está ativa: nenhuma de inserir, mover, duplicar ou eliminar.
-  const names = await page.getByTestId('ai-panel').getByRole('button').allTextContents();
-  expect(names.map((n) => n.trim())).toEqual(['Propor alterações']);
-  await expect(page.getByTestId('ai-next-steps')).toContainText('Próximas etapas');
+  await expect(page.getByTestId('ai-caps')).toContainText('texto');
+  await expect(page.getByTestId('ai-caps')).not.toContainText('ligação');
+  // Âmbito explícito, por omissão o elemento selecionado; sem avisos de «em breve».
+  await expect(page.getByTestId('ai-scope-kind-element')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByTestId('ai-scope-name')).toContainText('Elemento · Título');
+  await expect(page.getByTestId('ai-panel')).not.toContainText('Próximas etapas');
+  await expect(page.getByTestId('ai-plan')).toContainText('Simulador: sem custo');
 
   await ask(page, 'texto: Título do assistente; nível h2; cor #b91c1c');
   await expect(page.getByTestId('ai-change')).toHaveCount(3);
@@ -64,8 +66,10 @@ test('[simulado] pré-visualização, confirmação, desfazer único e persistê
   await expect(page.getByTestId('undo')).toBeDisabled();
 
   // O contexto enviado leva a origem dos estilos e a ligação à variável dos títulos.
-  const ctx = await page.evaluate(() => window.__boltAiLastRequest?.context);
-  expect(ctx?.capabilities).toEqual({ text: true, link: false, tag: true });
+  const last = await page.evaluate(() => window.__boltAiLastRequest);
+  expect(last?.scope.kind).toBe('element');
+  const ctx = last?.context.target;
+  expect(ctx?.capabilities).toEqual({ text: true, link: false, tag: true, image: false, container: false });
   expect(ctx?.styles.color).toMatchObject({ source: 'rule', variable: '--bolt-heading', variableLabel: 'Títulos' });
   expect(ctx?.styles['font-size']).toMatchObject({ source: 'rule', from: '.nb-title' });
 
@@ -167,7 +171,7 @@ test('[simulado] ligação (destino e novo separador), destino inseguro recusado
   const link = frame(page).locator('.nb-menu-link').first();
   await link.click();
   await openAi(page);
-  await expect(page.getByTestId('ai-caps')).not.toContainText('Ligação (não se aplica)');
+  await expect(page.getByTestId('ai-caps')).toContainText('ligação');
 
   await ask(page, 'ligação: javascript:alert(1)');
   await expect(page.getByTestId('ai-error')).toContainText('destino não permitido');
@@ -283,7 +287,7 @@ test('[simulado] espelho do piloto: Nimbus pelo nome; cor principal por variáve
   await expect(page.getByTestId('save-status')).toHaveText(SAVED);
   await expect.poll(() => css(frame(page).locator('h1').first(), 'color')).toBe('rgb(15, 122, 58)');
   await page.goto('/');
-  await page.getByRole('link', { name: `Abrir ${name}` }).click();
+  await page.getByRole('link', { name: `Abrir ${name}`, exact: true }).click();
   await expect(page.getByTestId('save-status')).toHaveText(SAVED);
   await expect.poll(() => css(frame(page).locator('h1').first(), 'color')).toBe('rgb(15, 122, 58)');
 });

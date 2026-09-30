@@ -1,17 +1,16 @@
 /**
- * Função `ai-propose` (Supabase Edge Function, Deno). Esta versão (v2, vários fornecedores) precisa
- * da migração 20261001120000 e aceita também pedidos v1 do frontend anterior (compatV1.ts).
+ * Função `ai-image` (Supabase Edge Function, Deno): gera UMA imagem com o fornecedor/modelo de
+ * imagens da configuração central. NÃO publicada; precisa da migração 20261001120000.
  *
- * Configuração: FONTE ÚNICA na base de dados (`ai_settings`, gerida no painel «Configurações de IA»),
- * lida em cada pedido. A chave vem do Supabase Vault (`ai_provider_key`, só papel de serviço).
- * Variáveis de ambiente: só as da infraestrutura (fornecidas pelo Supabase), AI_ALLOWED_ORIGINS e
- * o interruptor de emergência AI_FORCE_DISABLED=true (só desliga; nunca liga).
+ * A imagem volta em base64 para o editor, que só a guarda no armazenamento do workspace (referência
+ * permanente) se o utilizador aprovar a proposta. O custo fica registado em ai_usage (tipo
+ * «image») mesmo que a imagem seja descartada. Nunca há repetições automáticas pagas.
  */
 import { createClient } from '@supabase/supabase-js';
-import { handleProposeAny } from '../_shared/ai/compatV1.ts';
 import type { LimitReason } from '../_shared/ai/handler.ts';
+import { handleImage } from '../_shared/ai/imageHandler.ts';
 import { RuntimeSettings } from '../_shared/ai/limits.ts';
-import { makeEditProvider } from '../_shared/ai/registry.ts';
+import { makeImageGenerator } from '../_shared/ai/registry.ts';
 import { corsHeaders, json } from '../_shared/http.ts';
 
 const env = (name: string): string | undefined => Deno.env.get(name);
@@ -21,20 +20,17 @@ const required = (name: string): string => {
   return v;
 };
 
-// Fornecidas pelo Supabase a todas as funções.
 const SUPABASE_URL = required('SUPABASE_URL');
 const ANON_KEY = required('SUPABASE_ANON_KEY');
 const service = createClient(SUPABASE_URL, required('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false } });
 const FORCE_DISABLED = env('AI_FORCE_DISABLED') === 'true';
-
 const REASONS: readonly LimitReason[] = ['disabled', 'config_changed', 'forbidden', 'duplicate', 'user_day', 'workspace_day', 'user_concurrency', 'workspace_concurrency', 'budget'];
 
 Deno.serve(async (request: Request) => {
   const headers = corsHeaders(request.headers.get('origin'), env('AI_ALLOWED_ORIGINS'));
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
   if (request.method !== 'POST') return new Response('Método não permitido', { status: 405, headers });
-  // Pedidos v2 (frontend atual) e v1 (frontend anterior, durante a transição).
-  const result = await handleProposeAny(request.headers.get('authorization'), await request.text(), {
+  const result = await handleImage(request.headers.get('authorization'), await request.text(), {
     forceDisabled: FORCE_DISABLED,
     now: () => Date.now(),
     async getUser(header) {
@@ -44,7 +40,6 @@ Deno.serve(async (request: Request) => {
       return error || !data.user ? null : { id: data.user.id };
     },
     async projectWorkspace(header, projectId) {
-      // Cliente com a sessão do utilizador: a RLS de `projects` decide o acesso.
       const asUser = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: header } }, auth: { persistSession: false } });
       const { data, error } = await asUser.from('projects').select('workspace_id').eq('id', projectId).maybeSingle();
       return error || !data ? null : String(data.workspace_id);
@@ -59,9 +54,7 @@ Deno.serve(async (request: Request) => {
       const { data, error } = await service.rpc('ai_provider_key_for', { p_provider: provider });
       return error || typeof data !== 'string' || !data ? null : data;
     },
-    makeProvider(runtime, key) {
-      return makeEditProvider(runtime.provider, { apiKey: key, model: runtime.model, fetch });
-    },
+    makeGenerator: (provider, model, key) => makeImageGenerator(provider, { apiKey: key, model, fetch }),
     async reserve(r) {
       const { data, error } = await service.rpc('ai_reserve', {
         p_request_id: r.requestId,
@@ -96,7 +89,6 @@ Deno.serve(async (request: Request) => {
         p_latency_ms: s.latencyMs,
         p_error: s.error ?? null,
       });
-      // Se o acerto falhar, a reserva fica aberta e conta pelo máximo (ver ai_expire_stale).
       if (error) console.error('ai_settle falhou');
     },
     async release(id) {

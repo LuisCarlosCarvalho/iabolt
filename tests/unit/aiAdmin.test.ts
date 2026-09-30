@@ -11,8 +11,10 @@ const KEY_A = 'sk-teste-chave-valida-000000000000AAAA';
 const KEY_B = 'sk-teste-chave-valida-000000000000BBBB';
 const KEY_BAD = 'sk-teste-chave-invalida-00000000000XXXX';
 const KEY_OFFLINE = 'sk-teste-chave-sem-rede-0000000000ZZZZ';
+const KEY_OPENAI = 'sk-teste-openai-valida-00000000000OOOO';
+const KEY_GOOGLE = 'AIza-teste-google-valida-000000000GGGG';
 
-const send = (deps: AdminDeps, req: AdminRequest | Record<string, unknown>, auth: string | null = LOCAL_ADMIN_AUTH): Promise<AdminResult> => handleAdmin(auth, JSON.stringify(req), deps);
+const send = (deps: AdminDeps, req: AdminRequest | Record<string, unknown>, auth: string | null = LOCAL_ADMIN_AUTH): Promise<AdminResult> => handleAdmin(auth, JSON.stringify({ api: 2, command: req }), deps);
 
 function spyLogs() {
   const lines: string[] = [];
@@ -33,7 +35,7 @@ describe('[simulado] ai-admin · autorização', () => {
       getUser: async (h) => (h === 'Bearer comum' ? { id: 'utilizador-comum' } : null),
       isAdmin: async () => false,
     };
-    for (const name of ['get', 'update', 'stageKey', 'activateKey', 'discardKey', 'removeKey', 'recordTest', 'providerKey', 'checkKey', 'usage', 'audit'] as const) {
+    for (const name of ['get', 'update', 'stageKey', 'activateKey', 'discardKey', 'removeKey', 'recordTest', 'providerKey', 'checkKey', 'usage', 'generation', 'audit'] as const) {
       const original = commonUser[name];
       Object.assign(commonUser, {
         [name]: (...args: never[]) => {
@@ -46,9 +48,9 @@ describe('[simulado] ai-admin · autorização', () => {
     const requests: AdminRequest[] = [
       { action: 'get' },
       { action: 'update', expectedVersion: 1, patch: { enabled: true } },
-      { action: 'setKey', key: KEY_A },
-      { action: 'removeKey', expectedVersion: 1 },
-      { action: 'test' },
+      { action: 'setKey', provider: 'anthropic', key: KEY_A },
+      { action: 'removeKey', provider: 'openai', expectedVersion: 1 },
+      { action: 'test', provider: 'google' },
       { action: 'usage' },
       { action: 'audit' },
     ];
@@ -61,11 +63,12 @@ describe('[simulado] ai-admin · autorização', () => {
     expect(touched).toEqual([]);
   });
 
-  it('pedido fora do contrato recusado sem ecoar o conteúdo (incluindo uma chave mal formada)', async () => {
+  it('pedido fora do contrato recusado sem ecoar o conteúdo (incluindo uma chave mal formada ou fornecedor desconhecido)', async () => {
     const deps = createLocalAiAdmin();
-    const bad = await send(deps, { action: 'setKey', key: 'sk teste com espacos 0000000000' });
+    const bad = await send(deps, { action: 'setKey', provider: 'anthropic', key: 'sk teste com espacos 0000000000' });
     expect(bad.status).toBe(400);
     expect(JSON.stringify(bad.body)).not.toContain('sk teste');
+    expect((await send(deps, { action: 'setKey', provider: 'qualquer-api', key: KEY_A })).status).toBe(400);
     expect((await send(deps, { action: 'update', expectedVersion: 1, patch: { key_status: 'valid' } })).status).toBe(400);
     expect((await send(deps, { action: 'apagarTudo' })).status).toBe(400);
   });
@@ -76,16 +79,18 @@ describe('[simulado] ai-admin · chave e configuração', () => {
     const logs = spyLogs();
     const deps = createLocalAiAdmin();
     const first = await send(deps, { action: 'get' });
-    expect(first.body.view?.settings).toMatchObject({ enabled: false, key: { configured: false, status: 'none' } });
+    expect(first.body.view?.settings).toMatchObject({ enabled: false, image_enabled: false, keys: { anthropic: { configured: false, status: 'none' } } });
     const on = await send(deps, { action: 'update', expectedVersion: 1, patch: { enabled: true } });
     expect(on.status).toBe(400);
     expect(on.body.code).toBe('invalid_settings');
 
-    const set = await send(deps, { action: 'setKey', key: KEY_A });
+    const set = await send(deps, { action: 'setKey', provider: 'anthropic', key: KEY_A });
     expect(set.status).toBe(200);
-    expect(set.body.view?.settings.key).toMatchObject({ configured: true, last4: 'AAAA', status: 'valid' });
-    expect(set.body.view?.settings.key.fingerprint).toMatch(/^[0-9a-f]{16}$/);
+    expect(set.body.view?.settings.keys.anthropic).toMatchObject({ configured: true, last4: 'AAAA', status: 'valid' });
+    expect(set.body.view?.settings.keys.anthropic.fingerprint).toMatch(/^[0-9a-f]{16}$/);
     expect(set.body.test?.cost).toContain('Sem custo');
+    expect(set.body.test?.message).toContain('Credenciais reconhecidas');
+    expect(set.body.test?.message).toContain('não comprova a geração');
     expect(JSON.stringify(set.body)).not.toContain(KEY_A);
 
     const version = set.body.view?.settings.version ?? 0;
@@ -98,62 +103,160 @@ describe('[simulado] ai-admin · chave e configuração', () => {
 
   it('substituição recusada (definitiva ou sem resposta) mantém a chave anterior e a configuração válida', async () => {
     const deps = createLocalAiAdmin();
-    await send(deps, { action: 'setKey', key: KEY_A });
+    await send(deps, { action: 'setKey', provider: 'anthropic', key: KEY_A });
     const v = (await send(deps, { action: 'get' })).body.view?.settings.version ?? 0;
     await send(deps, { action: 'update', expectedVersion: v, patch: { enabled: true } });
 
     for (const key of [KEY_BAD, KEY_OFFLINE]) {
-      const r = await send(deps, { action: 'setKey', key });
+      const r = await send(deps, { action: 'setKey', provider: 'anthropic', key });
       expect(r.status).toBe(422);
       expect(r.body.error).toContain('Mantém-se a chave anterior (…AAAA)');
-      expect(r.body.view?.settings).toMatchObject({ enabled: true, key: { last4: 'AAAA', status: 'valid' } });
+      expect(r.body.view?.settings).toMatchObject({ enabled: true, keys: { anthropic: { last4: 'AAAA', status: 'valid' } } });
       expect(JSON.stringify(r.body)).not.toContain(key);
-      expect(await deps.providerKey()).toBe(KEY_A);
+      expect(await deps.providerKey('anthropic')).toBe(KEY_A);
     }
     const audit = (await send(deps, { action: 'audit' })).body.audit ?? [];
     expect(audit.map((a) => a.action)).toEqual(expect.arrayContaining(['key_set', 'update', 'key_rejected']));
     expect(JSON.stringify(audit)).not.toContain(KEY_BAD);
 
     // Substituição aceite: nova ativa; a anterior sai do cofre.
-    const ok = await send(deps, { action: 'setKey', key: KEY_B });
-    expect(ok.body.view?.settings.key.last4).toBe('BBBB');
-    expect(await deps.providerKey()).toBe(KEY_B);
+    const ok = await send(deps, { action: 'setKey', provider: 'anthropic', key: KEY_B });
+    expect(ok.body.view?.settings.keys.anthropic.last4).toBe('BBBB');
+    expect(await deps.providerKey('anthropic')).toBe(KEY_B);
   });
 
   it('testar ligação: sem custo; recusa definitiva desativa; falta de resposta não muda nada; remover desativa', async () => {
     let answer: 'ok' | 'bad' | 'offline' = 'ok';
     const deps = createLocalAiAdmin(async () => (answer === 'ok' ? { ok: true } : answer === 'bad' ? { ok: false, definitive: true, reason: 'O fornecedor recusou a chave.' } : { ok: false, definitive: false, reason: 'Sem resposta do fornecedor.' }));
-    expect((await send(deps, { action: 'test' })).body.code).toBe('no_key');
-    await send(deps, { action: 'setKey', key: KEY_A });
+    expect((await send(deps, { action: 'test', provider: 'anthropic' })).body.code).toBe('no_key');
+    await send(deps, { action: 'setKey', provider: 'anthropic', key: KEY_A });
     let v = (await send(deps, { action: 'get' })).body.view?.settings.version ?? 0;
     await send(deps, { action: 'update', expectedVersion: v, patch: { enabled: true } });
 
     answer = 'offline';
-    const offline = await send(deps, { action: 'test' });
+    const offline = await send(deps, { action: 'test', provider: 'anthropic' });
     expect(offline.body.test).toMatchObject({ ok: false, definitive: false });
-    expect(offline.body.view?.settings).toMatchObject({ enabled: true, key: { status: 'valid' } });
+    expect(offline.body.view?.settings).toMatchObject({ enabled: true, keys: { anthropic: { status: 'valid' } } });
 
     answer = 'bad';
-    const bad = await send(deps, { action: 'test' });
+    const bad = await send(deps, { action: 'test', provider: 'anthropic' });
     expect(bad.body.test?.message).toContain('desativado');
-    expect(bad.body.view?.settings).toMatchObject({ enabled: false, key: { status: 'invalid' } });
+    expect(bad.body.view?.settings).toMatchObject({ enabled: false, keys: { anthropic: { status: 'invalid' } } });
     expect(bad.body.test?.cost).toContain('Sem custo');
 
     v = bad.body.view?.settings.version ?? 0;
-    const removed = await send(deps, { action: 'removeKey', expectedVersion: v });
-    expect(removed.body.view?.settings).toMatchObject({ enabled: false, key: { configured: false, status: 'none' } });
-    expect(await deps.providerKey()).toBeNull();
+    const removed = await send(deps, { action: 'removeKey', provider: 'anthropic', expectedVersion: v });
+    expect(removed.body.view?.settings).toMatchObject({ enabled: false, keys: { anthropic: { configured: false, status: 'none' } } });
+    expect(await deps.providerKey('anthropic')).toBeNull();
   });
 
   it('um erro interno que contenha a chave nunca a devolve', async () => {
     const deps: AdminDeps = {
       ...createLocalAiAdmin(),
-      stageKey: async (_a, key) => {
+      stageKey: async (_a, _p, key) => {
         throw new Error(`duplicate key value violates unique constraint: ${key}`);
       },
     };
-    const r = await send(deps, { action: 'setKey', key: KEY_A });
+    const r = await send(deps, { action: 'setKey', provider: 'openai', key: KEY_A });
     expect(r.status).toBe(500);
     expect(JSON.stringify(r.body)).not.toContain(KEY_A);
+  });
+});
+
+describe('[simulado] ai-admin · vários fornecedores', () => {
+  it('cada fornecedor tem a sua chave; trocar o fornecedor de edição preserva as outras chaves', async () => {
+    const tested: string[] = [];
+    const base = createLocalAiAdmin();
+    const deps: AdminDeps = {
+      ...base,
+      checkKey: async (provider, model, key, kind) => {
+        tested.push(`${provider}:${model}:${kind}`);
+        return base.checkKey(provider, model, key, kind);
+      },
+    };
+    await send(deps, { action: 'setKey', provider: 'anthropic', key: KEY_A });
+    const oa = await send(deps, { action: 'setKey', provider: 'openai', key: KEY_OPENAI });
+    const go = await send(deps, { action: 'setKey', provider: 'google', key: KEY_GOOGLE });
+    // O teste usa um modelo do PRÓPRIO fornecedor; OpenAI e Google só confirmam credenciais.
+    expect(tested).toEqual(['anthropic:claude-sonnet-5-5:edit', 'openai:gpt-6-luna:edit', 'google:gemini-3.5-flash-lite:edit']);
+    expect(oa.body.test?.message).toContain('Credenciais reconhecidas');
+    expect(oa.body.test?.message).toContain('só ficam comprovados com uma utilização real');
+    expect(go.body.view?.settings.keys).toMatchObject({ anthropic: { last4: 'AAAA' }, openai: { last4: 'OOOO' }, google: { last4: 'GGGG' } });
+
+    let v = go.body.view?.settings.version ?? 0;
+    const sw = await send(deps, { action: 'update', expectedVersion: v, patch: { provider: 'google', model: 'gemini-3.8-flash', enabled: true } });
+    expect(sw.body.view?.settings).toMatchObject({ provider: 'google', model: 'gemini-3.8-flash', enabled: true });
+    // As três chaves continuam no cofre, intactas.
+    expect(await deps.providerKey('anthropic')).toBe(KEY_A);
+    expect(await deps.providerKey('openai')).toBe(KEY_OPENAI);
+    expect(await deps.providerKey('google')).toBe(KEY_GOOGLE);
+    v = sw.body.view?.settings.version ?? 0;
+    const back = await send(deps, { action: 'update', expectedVersion: v, patch: { provider: 'anthropic', model: 'claude-sonnet-5-5' } });
+    expect(back.body.view?.settings.keys.google).toMatchObject({ configured: true, status: 'valid' });
+    // Modelo de outro fornecedor ou de imagem no lugar do de edição: recusado.
+    v = back.body.view?.settings.version ?? 0;
+    expect((await send(deps, { action: 'update', expectedVersion: v, patch: { provider: 'anthropic', model: 'gpt-6-luna' } })).body.code).toBe('invalid_settings');
+    expect((await send(deps, { action: 'update', expectedVersion: v, patch: { provider: 'google', model: 'gemini-3.1-flash-image' } })).body.code).toBe('invalid_settings');
+    expect(JSON.stringify(await send(deps, { action: 'get' }))).not.toMatch(/sk-teste|AIza-teste/);
+  });
+
+  it('imagens: fornecedor/modelo próprios; só ativam com a chave desse fornecedor; remover a chave desativa só esse uso', async () => {
+    const deps = createLocalAiAdmin();
+    await send(deps, { action: 'setKey', provider: 'anthropic', key: KEY_A });
+    let v = (await send(deps, { action: 'get' })).body.view?.settings.version ?? 0;
+    await send(deps, { action: 'update', expectedVersion: v, patch: { enabled: true } });
+    v = (await send(deps, { action: 'get' })).body.view?.settings.version ?? 0;
+    const pick = await send(deps, { action: 'update', expectedVersion: v, patch: { image_provider: 'google', image_model: 'gemini-3.1-flash-image' } });
+    expect(pick.body.view?.settings).toMatchObject({ image_provider: 'google', image_model: 'gemini-3.1-flash-image', image_enabled: false });
+    v = pick.body.view?.settings.version ?? 0;
+    // Sem chave Google reconhecida: não ativa.
+    expect((await send(deps, { action: 'update', expectedVersion: v, patch: { image_enabled: true } })).body.code).toBe('invalid_settings');
+    // Modelo de edição no lugar do de imagem: recusado.
+    expect((await send(deps, { action: 'update', expectedVersion: v, patch: { image_model: 'gemini-3.8-flash' } })).body.code).toBe('invalid_settings');
+    await send(deps, { action: 'setKey', provider: 'google', key: KEY_GOOGLE });
+    v = (await send(deps, { action: 'get' })).body.view?.settings.version ?? 0;
+    const on = await send(deps, { action: 'update', expectedVersion: v, patch: { image_enabled: true } });
+    expect(on.body.view?.settings).toMatchObject({ enabled: true, image_enabled: true });
+
+    v = on.body.view?.settings.version ?? 0;
+    const removed = await send(deps, { action: 'removeKey', provider: 'google', expectedVersion: v });
+    expect(removed.body.view?.settings).toMatchObject({ enabled: true, image_enabled: false, keys: { anthropic: { status: 'valid' }, google: { configured: false } } });
+    expect(await deps.providerKey('anthropic')).toBe(KEY_A);
+    const audit = (await send(deps, { action: 'audit' })).body.audit ?? [];
+    expect(audit[0]).toMatchObject({ action: 'key_removed', changes: { fornecedor: 'google', imagens: 'desativadas' } });
+  });
+});
+
+describe('[simulado] ai-admin · formato do pedido', () => {
+  it('formato recusado pelo fornecedor: a chave fica guardada e o assistente não é desativado, com aviso', async () => {
+    const warning = 'Chave e modelo reconhecidos, mas o fornecedor recusou o formato do pedido do assistente (HTTP 400 · invalid_request_error: x).';
+    const deps = createLocalAiAdmin(async () => ({ ok: true, warning }));
+    const saved = await send(deps, { action: 'setKey', provider: 'anthropic', key: KEY_A });
+    expect(saved.status).toBe(200);
+    expect(saved.body.view?.settings.keys.anthropic).toMatchObject({ configured: true, status: 'valid' });
+    expect(saved.body.test).toMatchObject({ ok: false, definitive: false, message: warning });
+    const version = saved.body.view?.settings.version ?? 0;
+    const on = await send(deps, { action: 'update', expectedVersion: version, patch: { enabled: true } });
+    expect(on.body.view?.settings.enabled).toBe(true);
+    const tested = await send(deps, { action: 'test', provider: 'anthropic' });
+    expect(tested.body.test).toMatchObject({ ok: false, definitive: false, message: warning });
+    expect(tested.body.view?.settings).toMatchObject({ enabled: true, keys: { anthropic: { status: 'valid' } } });
+    expect(JSON.stringify([saved.body, tested.body])).not.toContain(KEY_A);
+  });
+});
+
+describe('[simulado] ai-admin · geração validada', () => {
+  it('«usage» devolve a última utilização real por fornecedor/modelo/tipo, separada do teste das credenciais', async () => {
+    const base = createLocalAiAdmin();
+    const deps: AdminDeps = {
+      ...base,
+      generation: async () => [{ provider: 'anthropic', model: 'claude-sonnet-5-5', kind: 'edit', validated_at: '2026-09-29T20:00:00Z' }],
+    };
+    const r = await send(deps, { action: 'usage' });
+    expect(r.body.generation).toEqual([{ provider: 'anthropic', model: 'claude-sonnet-5-5', kind: 'edit', validated_at: '2026-09-29T20:00:00Z' }]);
+    expect(r.body.usage).toMatchObject({ image_usd: 0 });
+    // Sem pedidos reais (simulação local): por validar, mesmo com a chave reconhecida.
+    await send(base, { action: 'setKey', provider: 'anthropic', key: KEY_A });
+    expect((await send(base, { action: 'usage' })).body.generation).toEqual([]);
   });
 });

@@ -1,7 +1,9 @@
-import { AI_CONTRACT_VERSION, AiProposal, AiProposeRequest, checkProposalShape, type AiProposeResponse } from './contract.ts';
+import { AI_CONTRACT_VERSION, AiProposal, AiProposeRequest, checkProposalShape, scopeRoot, type AiProposeResponse } from './contract.ts';
 import { attemptCeilingUsd, costUsd, DEFAULT_LIMITS, limitsFromRuntime, reservationUsd, utf8Bytes, type AiPrices, type RuntimeSettings, type TokenUsage } from './limits.ts';
 import { SYSTEM_PROMPT, userMessage } from './prompt.ts';
-import { ProviderError, sentText, type AiProvider } from './provider.ts';
+import { ProviderError, type AiProvider } from './provider.ts';
+import type { ProviderId } from './ids.ts';
+import { sentTextFor } from './registry.ts';
 
 /**
  * Lógica da função `ai-propose`, independente do Deno (testada com dependências simuladas).
@@ -20,8 +22,10 @@ export interface Reservation {
   projectId: string;
   reserveUsd: number;
   /** Instantâneo guardado com a reserva; o acerto usa os mesmos preços. */
+  provider: ProviderId;
   model: string;
-  prices: AiPrices;
+  prices: AiPrices | Record<string, number | null>;
+  kind: 'edit' | 'image';
 }
 
 export interface Settlement {
@@ -45,8 +49,8 @@ export interface HandlerDeps {
   projectWorkspace(authHeader: string, projectId: string): Promise<string | null>;
   /** Configuração central em vigor (lida em cada pedido). */
   loadRuntime(): Promise<RuntimeSettings | null>;
-  /** Chave decifrada do cofre (só no servidor). */
-  providerKey(): Promise<string | null>;
+  /** Chave decifrada do cofre (só no servidor), do fornecedor indicado. */
+  providerKey(provider: ProviderId): Promise<string | null>;
   makeProvider(runtime: RuntimeSettings, key: string): AiProvider;
   reserve(r: Reservation): Promise<{ ok: true; id: string } | { ok: false; reason: LimitReason }>;
   settle(id: string, s: Settlement): Promise<void>;
@@ -107,26 +111,34 @@ export async function handlePropose(authHeader: string | null, rawBody: string, 
   }
   const parsed = AiProposeRequest.safeParse(json);
   if (!parsed.success) return fail(400, 'bad_request', 'Pedido fora do contrato.', parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.')}: ${i.message}`));
-  const req = parsed.data;
-  if (req.context.id !== req.scope.id) return fail(400, 'scope_mismatch', 'O contexto não corresponde ao âmbito.');
-  const user = userMessage(req);
-  if (user.length > DEFAULT_LIMITS.maxInputChars) return fail(413, 'context_too_large', 'O elemento tem conteúdo a mais para o assistente.');
+  const asked = parsed.data;
+  // O contexto tem de corresponder ao âmbito: o elemento/secção principal e a(s) página(s) certas.
+  const root = scopeRoot(asked.scope);
+  if (root !== null && asked.context.target?.id !== root) return fail(400, 'scope_mismatch', 'O contexto não corresponde ao âmbito.');
+  const scopePage = asked.scope.kind === 'site' ? null : asked.scope.pageId;
+  if (scopePage !== null && !asked.context.pages.some((p) => p.id === scopePage)) return fail(400, 'scope_mismatch', 'O contexto não corresponde ao âmbito.');
+  if (asked.scope.kind !== 'site' && asked.context.pages.length !== 1) return fail(400, 'scope_mismatch', 'O contexto não corresponde ao âmbito.');
 
   const who = await deps.getUser(authHeader);
   if (!who || !authHeader) return fail(401, 'no_session', 'Sessão inválida. Entre novamente.');
-  const workspaceId = await deps.projectWorkspace(authHeader, req.projectId);
+  const workspaceId = await deps.projectWorkspace(authHeader, asked.projectId);
   if (!workspaceId) return fail(403, 'no_access', 'Sem acesso a este projeto.');
 
   // Configuração central em vigor (desativar no painel bloqueia já a chamada seguinte).
   const runtime = await deps.loadRuntime();
   if (!runtime || !runtime.enabled || runtime.key_status !== 'valid') return DISABLED();
   const limits = limitsFromRuntime(runtime);
-  const key = await deps.providerKey();
+  // A geração de imagens só é oferecida ao modelo se estiver REALMENTE ativa no servidor.
+  const req: AiProposeRequest = { ...asked, imageGeneration: asked.imageGeneration && runtime.image_enabled && runtime.image_key_status === 'valid' };
+  const user = userMessage(req);
+  if (user.length > DEFAULT_LIMITS.maxInputChars) return fail(413, 'context_too_large', 'O âmbito tem conteúdo a mais para um só pedido; o editor divide pedidos grandes em partes.');
+  const key = await deps.providerKey(runtime.provider);
   if (!key) return DISABLED();
   const provider = deps.makeProvider(runtime, key);
 
-  // Teto por tentativa a partir do que vai REALMENTE ser enviado (bytes UTF-8 + margem).
-  const sentBytes = utf8Bytes(sentText(user));
+  // Teto por tentativa a partir do que vai REALMENTE ser enviado (corpo do pedido deste
+  // fornecedor, em bytes UTF-8, + margem).
+  const sentBytes = utf8Bytes(sentTextFor(runtime.provider, runtime.model, user, limits.maxOutputTokens));
   const ceiling = attemptCeilingUsd(limits, sentBytes);
   const reservation = await deps.reserve({
     requestId: req.requestId,
@@ -134,8 +146,10 @@ export async function handlePropose(authHeader: string | null, rawBody: string, 
     workspaceId,
     projectId: req.projectId,
     reserveUsd: reservationUsd(limits, sentBytes),
+    provider: runtime.provider,
     model: runtime.model,
     prices: limits.prices,
+    kind: 'edit',
   });
   if (!reservation.ok) return fail(LIMIT_STATUS[reservation.reason], `limit_${reservation.reason}`, LIMIT_MESSAGE[reservation.reason]);
 
@@ -172,6 +186,13 @@ export async function handlePropose(authHeader: string | null, rawBody: string, 
         if (r.truncated) {
           lastProblem = 'A resposta do assistente ficou incompleta.';
           continue;
+        }
+        if (r.noToolCall) {
+          // Texto livre ou recusa, sem a ferramenta: nada é aplicado. Não se repete (o modelo decidiu
+          // responder assim; repetir custaria de novo, provavelmente com o mesmo resultado).
+          lastProblem = r.noToolCall.stopReason === 'refusal' ? 'O modelo recusou o pedido.' : 'O assistente respondeu sem propor operações.';
+          details = r.noToolCall.text ? [`Resposta do modelo: ${r.noToolCall.text}`] : [];
+          break;
         }
         const p = AiProposal.safeParse(r.toolInput);
         if (!p.success) {

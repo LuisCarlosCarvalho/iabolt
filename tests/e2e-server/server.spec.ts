@@ -136,13 +136,13 @@ test('template → editar texto, estilo, ligação e imagem → guardar → F5 �
   // Voltar à Dashboard e reabrir.
   await page.getByTestId('back-to-projects').click();
   await expect(page).toHaveURL(/\/$/);
-  await page.getByRole('link', { name: `Abrir ${name}` }).click();
+  await page.getByRole('link', { name: `Abrir ${name}`, exact: true }).click();
   await expect(page).toHaveURL(url);
   await expectPersisted(page);
 
   // Segundo browser (contexto novo, sem nada em cache), mesma conta.
   const second = await newLoggedPage(browser, 'A');
-  await second.page.getByRole('link', { name: `Abrir ${name}` }).click();
+  await second.page.getByRole('link', { name: `Abrir ${name}`, exact: true }).click();
   await expect(second.page).toHaveURL(url);
   await expectPersisted(second.page);
   await second.context.close();
@@ -261,7 +261,7 @@ test('projetos do modo local continuam no browser e podem ser copiados para a co
   );
   expect(stillLocal).toBe(true);
 
-  await page.getByRole('link', { name: `Abrir ${name}` }).click();
+  await page.getByRole('link', { name: `Abrir ${name}`, exact: true }).click();
   await expect(frame(page).locator('h1')).toHaveText('Feito em modo local');
 });
 
@@ -428,7 +428,7 @@ test('várias páginas: gravação automática dos eventos de página, página i
 
   // Reabrir pela Dashboard.
   await page.goto('/');
-  await page.getByRole('link', { name: `Abrir ${name}` }).click();
+  await page.getByRole('link', { name: `Abrir ${name}`, exact: true }).click();
   const rows = page.getByTestId('page-row');
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText('Contactos');
@@ -482,7 +482,7 @@ test('várias páginas: gravação automática dos eventos de página, página i
   await page.getByTestId('save').click();
   await expect(page.getByTestId('save-status')).toHaveText(SAVED);
   await page.goto('/');
-  await page.getByRole('link', { name: `Abrir ${name}` }).click();
+  await page.getByRole('link', { name: `Abrir ${name}`, exact: true }).click();
   await expect(frame(page).getByText('Página dois gravada')).toBeVisible();
 });
 
@@ -513,7 +513,7 @@ test('estilos globais: gravação automática, F5, reabrir pela Dashboard, templ
   await page.reload();
   await expect(page.getByTestId('save-status')).toHaveText(SAVED);
   await page.goto('/');
-  await page.getByRole('link', { name: `Abrir ${name}` }).click();
+  await page.getByRole('link', { name: `Abrir ${name}`, exact: true }).click();
   await expect(page.getByTestId('save-status')).toHaveText(SAVED);
   await page.getByTestId('tool-styles').click();
   await expect(heading()).toHaveValue('#b91c1c');
@@ -558,7 +558,7 @@ test('estilos globais: gravação automática, F5, reabrir pela Dashboard, templ
   await fromTemplate(`${name} cópia B`);
   await expect(heading()).toHaveValue('#b91c1c');
   await page.goto('/');
-  await page.getByRole('link', { name: `Abrir ${name}` }).click();
+  await page.getByRole('link', { name: `Abrir ${name}`, exact: true }).click();
   await page.getByTestId('tool-styles').click();
   await expect(heading()).toHaveValue('#b91c1c');
 });

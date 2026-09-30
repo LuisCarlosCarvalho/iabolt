@@ -148,6 +148,8 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
   const [leaving, setLeaving] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  // Pedido para pôr o foco no campo do assistente (atalho «Editar com IA» da barra contextual).
+  const [aiFocus, setAiFocus] = useState(0);
   // Contentor do canvas (referencial da barra de ferramentas contextual).
   const [canvasWrap, setCanvasWrap] = useState<HTMLDivElement | null>(null);
 
@@ -394,7 +396,7 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
           {editor && leftTool === 'layers' && <TickedPages editor={editor} />}
           {editor && leftTool === 'layers' && <TickedLayers editor={editor} />}
           {editor && leftTool === 'styles' && <TickedGlobalStyles editor={editor} />}
-          {editor && leftTool === 'ai' && <TickedAi editor={editor} projectId={doc.projectId} device={device} />}
+          {editor && leftTool === 'ai' && <TickedAi editor={editor} projectId={doc.projectId} urls={urls} device={device} focusRequest={aiFocus} {...(summary.workspaceId ? { workspaceId: summary.workspaceId } : {})} />}
           {editor && leftTool === 'blocks' && <TickedBlocks editor={editor} onImageInserted={setImageTarget} target={insertTarget} onClearTarget={() => setInsertTarget(null)} />}
           {editor && leftTool === 'images' && (
             <TickedImages editor={editor} projectId={doc.projectId} urls={urls} {...(summary.workspaceId ? { workspaceId: summary.workspaceId } : {})} />
@@ -434,6 +436,11 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
               onOpenBlocksPanel={(target) => {
                 setInsertTarget(target);
                 setLeftTool('blocks');
+              }}
+              onOpenAi={() => {
+                // O elemento já está selecionado: o painel lê a mesma seleção. Nada muda no documento.
+                setLeftTool('ai');
+                setAiFocus((n) => n + 1);
               }}
             />
           )}

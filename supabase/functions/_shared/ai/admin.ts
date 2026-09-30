@@ -1,33 +1,42 @@
 import { z } from 'zod';
+import { PROVIDER_IDS, PROVIDER_LABEL, type ProviderId } from './ids.ts';
 import type { KeyCheck } from './provider.ts';
 
 /**
  * Lógica da função `ai-admin` (painel «Configurações de IA»), independente do Deno.
  * Em TODAS as ações: sessão válida → administrador da plataforma (verificado no servidor, pela
  * tabela platform_admins; nunca pelo email nem por algo vindo do browser) → ação.
- * A chave só entra (setKey); nenhuma resposta a devolve. Uma chave nova fica pendente, é testada
- * sem custo e só substitui a ativa se o fornecedor a aceitar.
+ * Cada fornecedor tem a sua chave. Uma chave só entra (setKey) e nenhuma resposta a devolve. Uma
+ * chave nova fica pendente, é testada sem custo e só substitui a ativa desse fornecedor se ele a
+ * aceitar. Trocar de fornecedor não apaga as outras chaves.
  */
 
 // ---------------------------------------------------------------- contrato (partilhado com o painel)
 
 const num = z.coerce.number().finite();
 const int = z.coerce.number().int();
+const Provider = z.enum(PROVIDER_IDS);
 
-export const SUPPORTED_PROVIDERS = [{ id: 'anthropic', label: 'Anthropic' }] as const;
+/** Fornecedores com adaptador implementado (os únicos que o painel mostra). */
+export const SUPPORTED_PROVIDERS: ReadonlyArray<{ id: ProviderId; label: string }> = PROVIDER_IDS.map((id) => ({ id, label: PROVIDER_LABEL[id] }));
 
 export const SettingsPatch = z
   .object({
     enabled: z.boolean(),
-    provider: z.enum(['anthropic']),
+    provider: Provider,
     model: z.string().min(1).max(80),
+    image_enabled: z.boolean(),
+    image_provider: Provider.nullable(),
+    image_model: z.string().min(1).max(80).nullable(),
+    image_requests_per_user_day: int.min(1).max(200),
+    max_parts: int.min(1).max(20),
     requests_per_user_day: int.min(1).max(1000),
     requests_per_workspace_day: int.min(1).max(10000),
     max_concurrent_per_user: int.min(1).max(5),
     max_concurrent_per_workspace: int.min(1).max(50),
-    max_output_tokens: int.min(100).max(4000),
+    max_output_tokens: int.min(100).max(16000),
     max_retries: int.min(0).max(2),
-    max_operations: int.min(1).max(20),
+    max_operations: int.min(1).max(200),
     overhead_tokens: int.min(0).max(10000),
     timeout_ms: int.min(5000).max(120000),
     reservation_ttl_seconds: int.min(60).max(3600),
@@ -37,21 +46,46 @@ export const SettingsPatch = z
   .strict();
 export type SettingsPatch = z.infer<typeof SettingsPatch>;
 
+const KeyText = z.string().trim().min(20).max(300).regex(/^\S+$/);
+
+/** Comandos do painel v2. */
 export const AdminRequest = z.discriminatedUnion('action', [
   z.object({ action: z.literal('get') }).strict(),
   z.object({ action: z.literal('update'), expectedVersion: z.number().int(), patch: SettingsPatch }).strict(),
-  z.object({ action: z.literal('setKey'), key: z.string().trim().min(20).max(300).regex(/^\S+$/) }).strict(),
-  z.object({ action: z.literal('removeKey'), expectedVersion: z.number().int() }).strict(),
-  z.object({ action: z.literal('test') }).strict(),
+  z.object({ action: z.literal('setKey'), provider: Provider, key: KeyText }).strict(),
+  z.object({ action: z.literal('removeKey'), provider: Provider, expectedVersion: z.number().int() }).strict(),
+  z.object({ action: z.literal('test'), provider: Provider }).strict(),
   z.object({ action: z.literal('usage') }).strict(),
   z.object({ action: z.literal('audit') }).strict(),
 ]);
 export type AdminRequest = z.infer<typeof AdminRequest>;
 
+/**
+ * Envelope dos pedidos v2: `{ api: 2, command }`. Pedidos sem `api: 2` são do painel v1 (frontend
+ * anterior) e seguem pela camada de compatibilidade (compatV1.ts), nunca por aqui.
+ */
+export const AdminEnvelope = z.object({ api: z.literal(2), command: AdminRequest }).strict();
+export const adminEnvelope = (command: AdminRequest) => ({ api: 2 as const, command });
+
+export const AdminKey = z.object({
+  configured: z.boolean(),
+  last4: z.string().nullable(),
+  fingerprint: z.string().nullable(),
+  status: z.enum(['none', 'valid', 'invalid']),
+  tested_at: z.string().nullable(),
+  updated_at: z.string().nullable(),
+});
+export type AdminKey = z.infer<typeof AdminKey>;
+
 export const AdminSettings = z.object({
   enabled: z.boolean(),
-  provider: z.enum(['anthropic']),
+  provider: Provider,
   model: z.string(),
+  image_enabled: z.boolean(),
+  image_provider: Provider.nullable(),
+  image_model: z.string().nullable(),
+  image_requests_per_user_day: int,
+  max_parts: int,
   requests_per_user_day: int,
   requests_per_workspace_day: int,
   max_concurrent_per_user: int,
@@ -63,14 +97,7 @@ export const AdminSettings = z.object({
   timeout_ms: int,
   reservation_ttl_seconds: int,
   monthly_budget_usd: num,
-  key: z.object({
-    configured: z.boolean(),
-    last4: z.string().nullable(),
-    fingerprint: z.string().nullable(),
-    status: z.enum(['none', 'valid', 'invalid']),
-    tested_at: z.string().nullable(),
-    updated_at: z.string().nullable(),
-  }),
+  keys: z.object({ anthropic: AdminKey, openai: AdminKey, google: AdminKey }),
   version: int,
   updated_at: z.string(),
   updated_by_email: z.string().nullable(),
@@ -78,9 +105,13 @@ export const AdminSettings = z.object({
 export type AdminSettings = z.infer<typeof AdminSettings>;
 
 export const AdminModel = z.object({
-  provider: z.enum(['anthropic']),
+  provider: Provider,
   model: z.string(),
   label: z.string(),
+  capability: z.enum(['edit', 'image']),
+  /** Teto (tarifa publicada) por imagem, USD. */
+  price_image: num.nullable(),
+  note: z.string().nullable(),
   prices: z.object({ input: num, output: num, cacheRead: num, cacheWrite: num }),
 });
 export type AdminModel = z.infer<typeof AdminModel>;
@@ -96,9 +127,18 @@ export const AdminUsage = z.object({
   reserved_usd: num,
   in_flight: int,
   unknown_attempts: int,
+  image_usd: num,
   budget_usd: num,
 });
 export type AdminUsage = z.infer<typeof AdminUsage>;
+
+/**
+ * «Geração validada»: a última utilização REAL bem-sucedida por fornecedor, modelo e tipo.
+ * É diferente de «credenciais reconhecidas», que o teste sem custo verifica sem gerar nada.
+ */
+export const AdminGenerationEntry = z.object({ provider: Provider, model: z.string(), kind: z.enum(['edit', 'image']), validated_at: z.string().nullable() });
+export const AdminGeneration = z.array(AdminGenerationEntry);
+export type AdminGeneration = z.infer<typeof AdminGeneration>;
 
 export const AdminAuditEntry = z.object({ at: z.string(), action: z.string(), changes: z.record(z.string(), z.unknown()), actor_email: z.string().nullable() });
 export type AdminAuditEntry = z.infer<typeof AdminAuditEntry>;
@@ -114,6 +154,7 @@ export interface TestResult {
 export interface AdminBody {
   view?: AdminView;
   usage?: AdminUsage;
+  generation?: AdminGeneration;
   audit?: AdminAuditEntry[];
   test?: TestResult;
   message?: string;
@@ -121,13 +162,14 @@ export interface AdminBody {
   code?: string;
 }
 
-export const TEST_COST_NOTE = 'Sem custo: consulta o modelo no fornecedor, sem gerar texto.';
+export const TEST_COST_NOTE = 'Sem custo: consulta o fornecedor sem gerar texto nem imagens.';
 
 /**
- * O teste consulta o modelo: valida a autenticação da chave e que o modelo é visível para ela.
- * NÃO prova que a geração funcione (créditos, limites, permissões de mensagens): isso só o piloto.
+ * O teste confirma CREDENCIAIS (chave e modelo). Na Anthropic também conta os tokens do pedido real
+ * (formato). NÃO prova a geração: isso só uma utilização real bem-sucedida, indicada à parte.
  */
-export const RECOGNISED = 'Chave e modelo reconhecidos pelo fornecedor (consulta sem gerar texto). A geração só fica comprovada no piloto.';
+export const RECOGNISED = 'Credenciais reconhecidas: chave, modelo e formato do pedido aceites, sem gerar texto. Isto não comprova a geração.';
+export const CREDENTIALS_ONLY = 'Credenciais reconhecidas: chave e modelo aceites, sem gerar nada. O formato do pedido e a geração só ficam comprovados com uma utilização real.';
 
 // ---------------------------------------------------------------- dependências
 
@@ -136,14 +178,16 @@ export interface AdminDeps {
   isAdmin(userId: string): Promise<boolean>;
   get(actor: string): Promise<unknown>;
   update(actor: string, expectedVersion: number, patch: SettingsPatch): Promise<unknown>;
-  stageKey(actor: string, key: string, last4: string, fingerprint: string): Promise<string>;
-  activateKey(actor: string, secretId: string): Promise<unknown>;
-  discardKey(actor: string, secretId: string, reason: string): Promise<void>;
-  removeKey(actor: string, expectedVersion: number): Promise<unknown>;
-  recordTest(actor: string, ok: boolean, detail: string): Promise<unknown>;
-  providerKey(): Promise<string | null>;
-  checkKey(provider: 'anthropic', model: string, key: string): Promise<KeyCheck>;
+  stageKey(actor: string, provider: ProviderId, key: string, last4: string, fingerprint: string): Promise<string>;
+  activateKey(actor: string, provider: ProviderId, secretId: string): Promise<unknown>;
+  discardKey(actor: string, provider: ProviderId, secretId: string, reason: string): Promise<void>;
+  removeKey(actor: string, provider: ProviderId, expectedVersion: number): Promise<unknown>;
+  recordTest(actor: string, provider: ProviderId, ok: boolean, detail: string): Promise<unknown>;
+  providerKey(provider: ProviderId): Promise<string | null>;
+  checkKey(provider: ProviderId, model: string, key: string, kind: 'edit' | 'image'): Promise<KeyCheck>;
   usage(actor: string): Promise<unknown>;
+  /** Última utilização real bem-sucedida por fornecedor/modelo/tipo. */
+  generation(actor: string): Promise<unknown>;
   audit(actor: string): Promise<unknown>;
 }
 
@@ -165,14 +209,28 @@ function mapError(e: unknown): AdminResult {
   const msg = e instanceof Error ? e.message : String(e);
   if (/not_admin/.test(msg)) return fail(403, 'not_admin', 'Esta área é só para administradores do Bolt IA.');
   if (/version_conflict/.test(msg)) return fail(409, 'version_conflict', 'As configurações mudaram entretanto. Recarregue antes de alterar.');
-  if (/ai_settings_check|check constraint/.test(msg)) return fail(400, 'invalid_settings', 'Combinação inválida. O assistente só pode ser ativado com uma chave válida, e as tentativas têm de caber no tempo da função.');
+  if (/ai_settings_check|check constraint/.test(msg)) {
+    return fail(400, 'invalid_settings', 'Combinação inválida: só se ativa um uso (edição ou imagens) com a chave desse fornecedor reconhecida e um modelo suportado para esse uso; as tentativas têm de caber no tempo da função.');
+  }
   if (/invalid_field|invalid_patch/.test(msg)) return fail(400, 'invalid_field', 'Campo não permitido.');
   if (/foreign key|violates foreign/.test(msg)) return fail(400, 'invalid_model', 'Modelo não suportado.');
-  if (/no_key/.test(msg)) return fail(400, 'no_key', 'Não há chave configurada.');
+  if (/no_key/.test(msg)) return fail(400, 'no_key', 'Não há chave configurada para este fornecedor.');
   return fail(500, 'internal', 'Não foi possível concluir a operação. Nada foi alterado.');
 }
 
 const parseView = (raw: unknown): AdminView => AdminView.parse(raw);
+
+/**
+ * Modelo usado no teste de um fornecedor: o de edição se for o fornecedor de edição; o de imagem se
+ * for o de imagens; senão o primeiro modelo suportado desse fornecedor (edição, depois imagem).
+ */
+export function modelForTest(view: AdminView, provider: ProviderId): { model: string; kind: 'edit' | 'image' } | null {
+  const s = view.settings;
+  if (s.provider === provider) return { model: s.model, kind: 'edit' };
+  if (s.image_provider === provider && s.image_model) return { model: s.image_model, kind: 'image' };
+  const m = view.models.find((x) => x.provider === provider && x.capability === 'edit') ?? view.models.find((x) => x.provider === provider);
+  return m ? { model: m.model, kind: m.capability } : null;
+}
 
 export async function handleAdmin(authHeader: string | null, rawBody: string, deps: AdminDeps): Promise<AdminResult> {
   const who = await deps.getUser(authHeader);
@@ -185,9 +243,9 @@ export async function handleAdmin(authHeader: string | null, rawBody: string, de
   } catch {
     return fail(400, 'bad_json', 'Pedido inválido.');
   }
-  const parsed = AdminRequest.safeParse(json);
+  const parsed = AdminEnvelope.safeParse(json);
   if (!parsed.success) return fail(400, 'bad_request', 'Pedido inválido.');
-  const req = parsed.data;
+  const req = parsed.data.command;
   const actor = who.id;
   // A chave recebida (se houver) nunca pode aparecer numa resposta: verificação final abaixo.
   const incomingKey = req.action === 'setKey' ? req.key : null;
@@ -207,34 +265,50 @@ export async function handleAdmin(authHeader: string | null, rawBody: string, de
         return { status: 200, body: { view: parseView(await deps.get(actor)) } };
       case 'update':
         return { status: 200, body: { view: parseView(await deps.update(actor, req.expectedVersion, req.patch)), message: 'Configurações guardadas.' } };
-      case 'removeKey':
-        return { status: 200, body: { view: parseView(await deps.removeKey(actor, req.expectedVersion)), message: 'Chave removida. O assistente ficou desativado.' } };
-      case 'usage':
-        return { status: 200, body: { usage: AdminUsage.parse(await deps.usage(actor)) } };
+      case 'removeKey': {
+        const view = parseView(await deps.removeKey(actor, req.provider, req.expectedVersion));
+        return { status: 200, body: { view, message: `Chave ${PROVIDER_LABEL[req.provider]} removida. As outras chaves mantêm-se; o que a usava ficou desativado.` } };
+      }
+      case 'usage': {
+        const usage = AdminUsage.parse(await deps.usage(actor));
+        return { status: 200, body: { usage, generation: AdminGeneration.parse(await deps.generation(actor)) } };
+      }
       case 'audit':
         return { status: 200, body: { audit: z.array(AdminAuditEntry).parse(await deps.audit(actor)) } };
       case 'setKey': {
-        const key = req.key;
+        const { key, provider } = req;
+        const label = PROVIDER_LABEL[provider];
         const before = parseView(await deps.get(actor));
-        const secretId = await deps.stageKey(actor, key, key.slice(-4), await keyFingerprint(key));
-        const check = await deps.checkKey(before.settings.provider, before.settings.model, key);
+        const target = modelForTest(before, provider);
+        if (!target) return fail(400, 'no_model', `Não há modelos suportados de ${label}.`);
+        const secretId = await deps.stageKey(actor, provider, key, key.slice(-4), await keyFingerprint(key));
+        const check = await deps.checkKey(provider, target.model, key, target.kind);
         if (check.ok) {
-          const view = parseView(await deps.activateKey(actor, secretId));
-          return { status: 200, body: { view, message: `Chave guardada (…${key.slice(-4)}): o fornecedor reconheceu a chave e o modelo. A geração de texto só fica comprovada no piloto.`, test: { ok: true, definitive: true, message: RECOGNISED, cost: TEST_COST_NOTE } } };
+          const view = parseView(await deps.activateKey(actor, provider, secretId));
+          if (check.warning) {
+            return { status: 200, body: { view, message: `Chave ${label} guardada (…${key.slice(-4)}). ${check.warning}`, test: { ok: false, definitive: false, message: check.warning, cost: TEST_COST_NOTE } } };
+          }
+          const message = check.formatChecked === false ? CREDENTIALS_ONLY : RECOGNISED;
+          return { status: 200, body: { view, message: `Chave ${label} guardada (…${key.slice(-4)}). ${message}`, test: { ok: true, definitive: true, message, cost: TEST_COST_NOTE } } };
         }
-        await deps.discardKey(actor, secretId, check.reason);
+        await deps.discardKey(actor, provider, secretId, check.reason);
         const view = parseView(await deps.get(actor));
-        const kept = before.settings.key.configured ? ` Mantém-se a chave anterior (…${before.settings.key.last4 ?? ''}).` : ' Não há chave configurada.';
-        return fail(422, 'key_rejected', `A chave nova não foi aceite: ${check.reason}${kept}`, { view, test: { ok: false, definitive: check.definitive, message: check.reason, cost: TEST_COST_NOTE } });
+        const old = before.settings.keys[provider];
+        const kept = old.configured ? ` Mantém-se a chave anterior (…${old.last4 ?? ''}).` : ' Não há chave configurada.';
+        return fail(422, 'key_rejected', `A chave nova (${label}) não foi aceite: ${check.reason}${kept}`, { view, test: { ok: false, definitive: check.definitive, message: check.reason, cost: TEST_COST_NOTE } });
       }
       case 'test': {
+        const { provider } = req;
         const view = parseView(await deps.get(actor));
-        const key = await deps.providerKey();
-        if (!key) return fail(400, 'no_key', 'Não há chave configurada.', { view });
-        const check = await deps.checkKey(view.settings.provider, view.settings.model, key);
+        const key = await deps.providerKey(provider);
+        if (!key) return fail(400, 'no_key', 'Não há chave configurada para este fornecedor.', { view });
+        const target = modelForTest(view, provider);
+        if (!target) return fail(400, 'no_model', `Não há modelos suportados de ${PROVIDER_LABEL[provider]}.`, { view });
+        const check = await deps.checkKey(provider, target.model, key, target.kind);
         // Só um resultado definitivo (o fornecedor respondeu) muda o estado da chave.
-        const after = check.ok || check.definitive ? parseView(await deps.recordTest(actor, check.ok, check.ok ? 'aceite' : check.reason)) : view;
-        const message = check.ok ? RECOGNISED : check.definitive ? `${check.reason} O assistente foi desativado.` : check.reason;
+        const after = check.ok || check.definitive ? parseView(await deps.recordTest(actor, provider, check.ok, check.ok ? 'aceite' : check.reason)) : view;
+        if (check.ok && check.warning) return { status: 200, body: { view: after, test: { ok: false, definitive: false, message: check.warning, cost: TEST_COST_NOTE } } };
+        const message = check.ok ? (check.formatChecked === false ? CREDENTIALS_ONLY : RECOGNISED) : check.definitive ? `${check.reason} O que usava esta chave foi desativado.` : check.reason;
         return { status: 200, body: { view: after, test: { ok: check.ok, definitive: check.ok || check.definitive, message, cost: TEST_COST_NOTE } } };
       }
     }

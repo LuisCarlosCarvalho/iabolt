@@ -2,8 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import {
   AdminAuditEntry,
+  AdminGeneration,
   AdminUsage,
   AdminView,
+  adminEnvelope,
   handleAdmin,
   type AdminBody,
   type AdminRequest,
@@ -16,9 +18,48 @@ import { createLocalAiAdmin, LOCAL_ADMIN_AUTH } from './localAiAdmin';
  * verifica o administrador em cada ação) e com `ai_whoami`/`ai_status` (sem segredos). Em modo local
  * usa a simulação em memória, com a mesma lógica da função.
  */
+/**
+ * Estado público do assistente (sem segredos). `pricing` permite mostrar o custo máximo estimado
+ * ANTES de enviar (o servidor volta a calcular e a reservar). `image`: geração de imagens.
+ */
 export interface AiStatus {
   enabled: boolean;
   modelLabel: string | null;
+  provider?: string | null;
+  image?: { enabled: boolean; label: string | null; priceUsd: number | null };
+  pricing?: { prices: { input: number; output: number; cacheRead: number; cacheWrite: number }; maxOutputTokens: number; overheadTokens: number; maxRetries: number; maxParts: number };
+}
+
+const StatusRow = z.object({
+  enabled: z.boolean(),
+  provider: z.string().nullable().optional(),
+  model_label: z.string().nullable().optional(),
+  image_enabled: z.boolean().nullable().optional(),
+  image_label: z.string().nullable().optional(),
+  image_price_usd: z.coerce.number().nullable().optional(),
+  prices: z.object({ input: z.coerce.number(), output: z.coerce.number(), cacheRead: z.coerce.number(), cacheWrite: z.coerce.number() }).nullable().optional(),
+  max_output_tokens: z.coerce.number().nullable().optional(),
+  overhead_tokens: z.coerce.number().nullable().optional(),
+  max_retries: z.coerce.number().nullable().optional(),
+  max_parts: z.coerce.number().nullable().optional(),
+});
+
+/** Linha de `ai_status` → estado; campos ausentes (servidor antigo) ficam sem estimativa. */
+export function parseStatus(raw: unknown): AiStatus {
+  const r = StatusRow.safeParse(raw);
+  if (!r.success) return { enabled: false, modelLabel: null };
+  const s = r.data;
+  const pricing =
+    s.prices && s.max_output_tokens != null && s.overhead_tokens != null && s.max_retries != null
+      ? { prices: s.prices, maxOutputTokens: s.max_output_tokens, overheadTokens: s.overhead_tokens, maxRetries: s.max_retries, maxParts: s.max_parts ?? 1 }
+      : undefined;
+  return {
+    enabled: s.enabled,
+    modelLabel: s.model_label ?? null,
+    provider: s.provider ?? null,
+    image: { enabled: s.image_enabled === true, label: s.image_label ?? null, priceUsd: s.image_price_usd ?? null },
+    ...(pricing ? { pricing } : {}),
+  };
 }
 
 export interface AiAdminClient {
@@ -33,6 +74,7 @@ export interface AiAdminClient {
 const AdminBodySchema = z.object({
   view: AdminView.optional(),
   usage: AdminUsage.optional(),
+  generation: AdminGeneration.optional(),
   audit: z.array(AdminAuditEntry).optional(),
   test: z.object({ ok: z.boolean(), definitive: z.boolean(), message: z.string(), cost: z.string() }).optional(),
   message: z.string().optional(),
@@ -55,7 +97,7 @@ export class ServerAiAdminClient implements AiAdminClient {
   }
 
   async send(req: AdminRequest): Promise<AdminResult> {
-    const { data, error } = await this.client.functions.invoke('ai-admin', { body: req });
+    const { data, error } = await this.client.functions.invoke('ai-admin', { body: adminEnvelope(req) });
     if (!error) return { status: 200, body: parseBody(data) };
     const ctx: unknown = Reflect.get(error, 'context');
     if (ctx instanceof Response) return { status: ctx.status, body: parseBody(await ctx.json().catch(() => null)) };
@@ -63,11 +105,12 @@ export class ServerAiAdminClient implements AiAdminClient {
   }
 
   async status(): Promise<AiStatus> {
-    const { data, error } = await this.client.rpc('ai_status');
+    // v2 (com imagens e preços); se a migração nova ainda não existir, o estado v1.
+    const v2 = await this.client.rpc('ai_status_v2');
+    const { data, error } = v2.error ? await this.client.rpc('ai_status') : v2;
     const row: unknown = Array.isArray(data) ? data[0] : data;
     if (error || !row || typeof row !== 'object') return { enabled: false, modelLabel: null };
-    const label = Reflect.get(row, 'model_label');
-    return { enabled: Reflect.get(row, 'enabled') === true, modelLabel: typeof label === 'string' ? label : null };
+    return parseStatus(row);
   }
 }
 
@@ -80,12 +123,12 @@ export class LocalAiAdminClient implements AiAdminClient {
   }
 
   async send(req: AdminRequest): Promise<AdminResult> {
-    const r = await handleAdmin(LOCAL_ADMIN_AUTH, JSON.stringify(req), this.deps);
+    const r = await handleAdmin(LOCAL_ADMIN_AUTH, JSON.stringify(adminEnvelope(req)), this.deps);
     return { status: r.status, body: parseBody(r.body) };
   }
 
-  /** O assistente local usa sempre o simulador (não depende destas configurações). */
+  /** O assistente local usa sempre o simulador (não depende destas configurações), também para imagens. */
   async status(): Promise<AiStatus> {
-    return { enabled: true, modelLabel: null };
+    return { enabled: true, modelLabel: null, image: { enabled: true, label: 'Simulador de imagens', priceUsd: 0 } };
   }
 }

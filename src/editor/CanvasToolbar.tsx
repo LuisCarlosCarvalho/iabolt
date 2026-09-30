@@ -1,5 +1,5 @@
 import type { Component, Editor } from 'grapesjs';
-import { ArrowUpLeft, Columns2, Copy, Heading, Image as ImageIcon, ImageUp, LayoutPanelTop, Move, MousePointerClick, PenLine, Plus, Trash2, Type, X } from 'lucide-react';
+import { ArrowUpLeft, Columns2, Copy, Heading, Image as ImageIcon, ImageUp, LayoutPanelTop, Move, MousePointerClick, PenLine, Plus, Sparkles, Trash2, Type, X } from 'lucide-react';
 import { useEffect, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { BLOCKS, type BlockId } from '../engine/blocks';
 import { displayName } from '../engine/labels';
@@ -59,6 +59,7 @@ export function CanvasToolbar({
   onReplaceImage,
   onImageInserted,
   onOpenBlocksPanel,
+  onOpenAi,
 }: {
   editor: Editor;
   host: HTMLElement;
@@ -66,6 +67,8 @@ export function CanvasToolbar({
   onImageInserted: (c: Component) => void;
   /** Abrir o painel «Adicionar» com o destino escolhido aqui (antes, dentro ou depois). */
   onOpenBlocksPanel?: (target: { anchorId: string; position: InsertPosition }) => void;
+  /** Abrir o Assistente IA com este elemento (o mesmo painel, contexto e seleção). Não altera o documento. */
+  onOpenAi?: (c: Component) => void;
 }) {
   useEditorTick(editor);
   const selected = editor.getSelected();
@@ -199,6 +202,11 @@ export function CanvasToolbar({
         <span className="canvas-toolbar-name" data-testid="canvas-toolbar-name">
           {displayName(selected)}
         </span>
+        {onOpenAi && (
+          <button type="button" className="ct-btn ct-ai" title="Editar com IA" aria-label="Editar com IA" onClick={() => onOpenAi(selected)} data-testid="ct-ai">
+            <Sparkles />
+          </button>
+        )}
         <button type="button" className="ct-btn" title="Selecionar pai" aria-label="Selecionar pai" disabled={isRoot} onClick={() => run(() => selectParent(editor))} data-testid="ct-parent">
           <ArrowUpLeft />
         </button>

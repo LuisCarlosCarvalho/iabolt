@@ -1,29 +1,53 @@
-import type { AdminDeps, SettingsPatch } from '../../supabase/functions/_shared/ai/admin.ts';
+import type { AdminDeps, AdminModel, SettingsPatch } from '../../supabase/functions/_shared/ai/admin.ts';
+import type { ProviderId } from '../../supabase/functions/_shared/ai/ids.ts';
 import type { KeyCheck } from '../../supabase/functions/_shared/ai/provider.ts';
 
 /**
  * SIMULAÇÃO LOCAL das Configurações de IA (modo local, sem servidor): implementa as mesmas
  * dependências que a função `ai-admin` usa no Supabase, em memória, com as mesmas regras da base
- * de dados (versão, ativação só com chave válida, chave pendente até ao teste, auditoria sem
- * segredos). Serve para desenvolvimento e testes da interface; nada é gravado nem enviado, e a
- * chave simulada vive só na memória desta página. O teste de ligação é simulado:
+ * de dados (versão, uma chave por fornecedor, ativação só com chave válida do fornecedor em uso,
+ * chave pendente até ao teste, auditoria sem segredos). Nada é gravado nem enviado; as chaves
+ * simuladas vivem só na memória desta página. O teste de ligação é simulado:
  *   chave com «invalida» → recusada pelo «fornecedor»; com «sem-rede» → sem resposta.
  */
 const ACTOR = 'local-admin';
 const ACTOR_EMAIL = 'administrador local (simulação)';
 
-const MODELS = [
-  { provider: 'anthropic' as const, model: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', prices: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 } },
-  { provider: 'anthropic' as const, model: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', prices: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 } },
-  { provider: 'anthropic' as const, model: 'claude-opus-5-5', label: 'Claude Opus 5.5', prices: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 } },
+/** Iguais aos modelos SUPORTADOS da migração 20261001120000. */
+export const LOCAL_MODELS: AdminModel[] = [
+  { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', capability: 'edit', price_image: null, note: null, prices: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 } },
+  { provider: 'anthropic', model: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', capability: 'edit', price_image: null, note: null, prices: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 } },
+  { provider: 'anthropic', model: 'claude-opus-5-5', label: 'Claude Opus 5.5', capability: 'edit', price_image: null, note: null, prices: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 } },
+  { provider: 'google', model: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite', capability: 'edit', price_image: null, note: null, prices: { input: 0.3, output: 2.5, cacheRead: 0.03, cacheWrite: 0.3 } },
+  { provider: 'google', model: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', capability: 'edit', price_image: null, note: 'Preço a partir de 01/01/2027 (até lá 0,75/3,75): a reserva usa o mais alto.', prices: { input: 1.5, output: 7.5, cacheRead: 0.15, cacheWrite: 1.5 } },
+  { provider: 'google', model: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image', capability: 'image', price_image: 0.067, note: 'Imagem 1K: 0,067 USD.', prices: { input: 0.5, output: 3, cacheRead: 0, cacheWrite: 0.5 } },
+  { provider: 'google', model: 'gemini-3-pro-image', label: 'Gemini 3 Pro Image', capability: 'image', price_image: 0.134, note: 'Imagem 1K/2K: 0,134 USD.', prices: { input: 2, output: 12, cacheRead: 0, cacheWrite: 2 } },
+  { provider: 'openai', model: 'gpt-6-luna', label: 'GPT-6 Luna', capability: 'edit', price_image: null, note: null, prices: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.1 } },
+  { provider: 'openai', model: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', capability: 'edit', price_image: null, note: 'Preços de contexto curto; pedidos do assistente ficam muito abaixo do limite de contexto longo.', prices: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2 } },
+  { provider: 'openai', model: 'gpt-6-astra', label: 'GPT-6 Astra', capability: 'edit', price_image: null, note: null, prices: { input: 10, output: 50, cacheRead: 1, cacheWrite: 10 } },
 ];
 
 type KeyStatus = 'none' | 'valid' | 'invalid';
 
-interface State {
+interface KeyState {
+  id: string | null;
+  last4: string | null;
+  fingerprint: string | null;
+  status: KeyStatus;
+  testedAt: string | null;
+  updatedAt: string | null;
+  pending: { id: string; last4: string; fingerprint: string } | null;
+}
+
+interface Settings {
   enabled: boolean;
-  provider: 'anthropic';
+  provider: ProviderId;
   model: string;
+  image_enabled: boolean;
+  image_provider: ProviderId | null;
+  image_model: string | null;
+  image_requests_per_user_day: number;
+  max_parts: number;
   requests_per_user_day: number;
   requests_per_workspace_day: number;
   max_concurrent_per_user: number;
@@ -35,25 +59,21 @@ interface State {
   timeout_ms: number;
   reservation_ttl_seconds: number;
   monthly_budget_usd: number;
-  keyId: string | null;
-  keyLast4: string | null;
-  keyFingerprint: string | null;
-  keyStatus: KeyStatus;
-  keyTestedAt: string | null;
-  keyUpdatedAt: string | null;
-  pending: { id: string; last4: string; fingerprint: string } | null;
-  version: number;
-  updatedAt: string;
-  updatedBy: string | null;
 }
 
 const now = () => new Date().toISOString();
+const emptyKey = (): KeyState => ({ id: null, last4: null, fingerprint: null, status: 'none', testedAt: null, updatedAt: null, pending: null });
 
-export function createLocalAiAdmin(checkKey?: (key: string) => Promise<KeyCheck>): AdminDeps {
-  const state: State = {
+export function createLocalAiAdmin(checkKey?: (key: string, provider: ProviderId) => Promise<KeyCheck>): AdminDeps {
+  const settings: Settings = {
     enabled: false,
     provider: 'anthropic',
     model: 'claude-sonnet-5-5',
+    image_enabled: false,
+    image_provider: null,
+    image_model: null,
+    image_requests_per_user_day: 10,
+    max_parts: 6,
     requests_per_user_day: 50,
     requests_per_workspace_day: 300,
     max_concurrent_per_user: 1,
@@ -65,17 +85,9 @@ export function createLocalAiAdmin(checkKey?: (key: string) => Promise<KeyCheck>
     timeout_ms: 30000,
     reservation_ttl_seconds: 300,
     monthly_budget_usd: 25,
-    keyId: null,
-    keyLast4: null,
-    keyFingerprint: null,
-    keyStatus: 'none',
-    keyTestedAt: null,
-    keyUpdatedAt: null,
-    pending: null,
-    version: 1,
-    updatedAt: now(),
-    updatedBy: null,
   };
+  const keys: Record<ProviderId, KeyState> = { anthropic: emptyKey(), openai: emptyKey(), google: emptyKey() };
+  const meta = { version: 1, updatedAt: now(), updatedBy: null as string | null };
   /** «Cofre» em memória (só nesta página). */
   const vault = new Map<string, string>();
   const audit: Array<{ at: string; action: string; changes: Record<string, unknown>; actor_email: string | null }> = [];
@@ -84,38 +96,45 @@ export function createLocalAiAdmin(checkKey?: (key: string) => Promise<KeyCheck>
   const assert = (actor: string) => {
     if (actor !== ACTOR) throw new Error('not_admin');
   };
-  const checkConstraints = (s: State) => {
-    if (s.enabled && !(s.keyId && s.keyStatus === 'valid')) throw new Error('ai_settings_check');
+  /** As mesmas regras do gatilho ai__check_settings e das restrições da tabela. */
+  const checkConstraints = (s: Settings) => {
+    const edit = LOCAL_MODELS.find((m) => m.provider === s.provider && m.model === s.model);
+    if (!edit || edit.capability !== 'edit') throw new Error('ai_settings_check');
+    if (s.image_model !== null) {
+      const img = LOCAL_MODELS.find((m) => m.provider === s.image_provider && m.model === s.image_model);
+      if (!img || img.capability !== 'image') throw new Error('ai_settings_check');
+    }
+    if (s.enabled && keys[s.provider].status !== 'valid') throw new Error('ai_settings_check');
+    if (s.image_enabled && (!s.image_provider || !s.image_model || keys[s.image_provider].status !== 'valid')) throw new Error('ai_settings_check');
     if (s.timeout_ms * (s.max_retries + 1) + 10000 > 140000) throw new Error('ai_settings_check');
-    if (!MODELS.some((m) => m.provider === s.provider && m.model === s.model)) throw new Error('violates foreign key');
   };
+  const keyView = (k: KeyState) => ({ configured: k.id !== null, last4: k.last4, fingerprint: k.fingerprint, status: k.status, tested_at: k.testedAt, updated_at: k.updatedAt });
   const view = () => ({
     settings: {
-      enabled: state.enabled,
-      provider: state.provider,
-      model: state.model,
-      requests_per_user_day: state.requests_per_user_day,
-      requests_per_workspace_day: state.requests_per_workspace_day,
-      max_concurrent_per_user: state.max_concurrent_per_user,
-      max_concurrent_per_workspace: state.max_concurrent_per_workspace,
-      max_output_tokens: state.max_output_tokens,
-      max_retries: state.max_retries,
-      max_operations: state.max_operations,
-      overhead_tokens: state.overhead_tokens,
-      timeout_ms: state.timeout_ms,
-      reservation_ttl_seconds: state.reservation_ttl_seconds,
-      monthly_budget_usd: state.monthly_budget_usd,
-      key: { configured: state.keyId !== null, last4: state.keyLast4, fingerprint: state.keyFingerprint, status: state.keyStatus, tested_at: state.keyTestedAt, updated_at: state.keyUpdatedAt },
-      version: state.version,
-      updated_at: state.updatedAt,
-      updated_by_email: state.updatedBy,
+      ...settings,
+      keys: { anthropic: keyView(keys.anthropic), openai: keyView(keys.openai), google: keyView(keys.google) },
+      version: meta.version,
+      updated_at: meta.updatedAt,
+      updated_by_email: meta.updatedBy,
     },
-    models: MODELS,
+    models: LOCAL_MODELS,
   });
   const bump = () => {
-    state.version += 1;
-    state.updatedAt = now();
-    state.updatedBy = ACTOR_EMAIL;
+    meta.version += 1;
+    meta.updatedAt = now();
+    meta.updatedBy = ACTOR_EMAIL;
+  };
+  const disableUsersOf = (provider: ProviderId) => {
+    const out: Record<string, string> = {};
+    if (settings.provider === provider && settings.enabled) {
+      settings.enabled = false;
+      out.assistente = 'desativado';
+    }
+    if (settings.image_provider === provider && settings.image_enabled) {
+      settings.image_enabled = false;
+      out.imagens = 'desativadas';
+    }
+    return out;
   };
 
   return {
@@ -127,79 +146,89 @@ export function createLocalAiAdmin(checkKey?: (key: string) => Promise<KeyCheck>
     },
     async update(actor, expectedVersion, patch: SettingsPatch) {
       assert(actor);
-      if (expectedVersion !== state.version) throw new Error('version_conflict');
-      const next: State = { ...state, ...patch };
+      if (expectedVersion !== meta.version) throw new Error('version_conflict');
+      const next: Settings = { ...settings, ...patch };
       checkConstraints(next);
       const changes: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(patch)) if (Reflect.get(state, k) !== v) changes[k] = { de: Reflect.get(state, k), para: v };
+      for (const [k, v] of Object.entries(patch)) if (Reflect.get(settings, k) !== v) changes[k] = { de: Reflect.get(settings, k), para: v };
       if (Object.keys(changes).length === 0) return view();
-      Object.assign(state, patch);
+      Object.assign(settings, next);
       bump();
       record('update', changes);
       return view();
     },
-    async stageKey(actor, key, last4, fingerprint) {
+    async stageKey(actor, provider, key, last4, fingerprint) {
       assert(actor);
-      if (state.pending) vault.delete(state.pending.id);
+      const k = keys[provider];
+      if (k.pending) vault.delete(k.pending.id);
       const id = crypto.randomUUID();
       vault.set(id, key);
-      state.pending = { id, last4, fingerprint: fingerprint.slice(0, 16) };
+      k.pending = { id, last4, fingerprint: fingerprint.slice(0, 16) };
       return id;
     },
-    async activateKey(actor, secretId) {
+    async activateKey(actor, provider, secretId) {
       assert(actor);
-      const p = state.pending;
+      const k = keys[provider];
+      const p = k.pending;
       if (!p || p.id !== secretId) throw new Error('pending_mismatch');
-      const old = state.keyId;
-      const oldLast4 = state.keyLast4;
-      Object.assign(state, { keyId: p.id, keyLast4: p.last4, keyFingerprint: p.fingerprint, keyStatus: 'valid', keyTestedAt: now(), keyUpdatedAt: now(), pending: null });
+      const old = k.id;
+      const oldLast4 = k.last4;
+      Object.assign(k, { id: p.id, last4: p.last4, fingerprint: p.fingerprint, status: 'valid', testedAt: now(), updatedAt: now(), pending: null });
       if (old) vault.delete(old);
       bump();
-      record(old ? 'key_replaced' : 'key_set', { chave: { de: oldLast4 ? `…${oldLast4}` : null, para: `…${p.last4}` } });
+      record(old ? 'key_replaced' : 'key_set', { fornecedor: provider, chave: { de: oldLast4 ? `…${oldLast4}` : null, para: `…${p.last4}` } });
       return view();
     },
-    async discardKey(actor, secretId, reason) {
+    async discardKey(actor, provider, secretId, reason) {
       assert(actor);
-      const p = state.pending;
+      const k = keys[provider];
+      const p = k.pending;
       if (!p || p.id !== secretId) return;
       vault.delete(secretId);
-      state.pending = null;
-      record('key_rejected', { chave: `…${p.last4}`, motivo: reason.slice(0, 200) });
+      k.pending = null;
+      record('key_rejected', { fornecedor: provider, chave: `…${p.last4}`, motivo: reason.slice(0, 200) });
     },
-    async removeKey(actor, expectedVersion) {
+    async removeKey(actor, provider, expectedVersion) {
       assert(actor);
-      if (expectedVersion !== state.version) throw new Error('version_conflict');
-      const last4 = state.keyLast4;
-      if (state.keyId) vault.delete(state.keyId);
-      Object.assign(state, { enabled: false, keyId: null, keyLast4: null, keyFingerprint: null, keyStatus: 'none', keyTestedAt: null, keyUpdatedAt: now() });
+      if (expectedVersion !== meta.version) throw new Error('version_conflict');
+      const k = keys[provider];
+      const last4 = k.last4;
+      const disabled = disableUsersOf(provider);
+      if (k.id) vault.delete(k.id);
+      Object.assign(k, { id: null, last4: null, fingerprint: null, status: 'none', testedAt: null, updatedAt: now() });
       bump();
-      record('key_removed', { chave: last4 ? `…${last4}` : null, assistente: 'desativado' });
+      record('key_removed', { fornecedor: provider, chave: last4 ? `…${last4}` : null, ...disabled });
       return view();
     },
-    async recordTest(actor, ok, detail) {
+    async recordTest(actor, provider, ok, detail) {
       assert(actor);
-      if (!state.keyId) throw new Error('no_key');
-      const wasEnabled = state.enabled;
-      state.keyStatus = ok ? 'valid' : 'invalid';
-      if (!ok) state.enabled = false;
-      state.keyTestedAt = now();
-      state.version += 1;
-      record('key_tested', { chave: `…${state.keyLast4 ?? ''}`, resultado: ok ? 'aceite' : 'recusada', detalhe: detail.slice(0, 200), ...(wasEnabled && !ok ? { assistente: 'desativado' } : {}) });
+      const k = keys[provider];
+      if (!k.id) throw new Error('no_key');
+      const disabled = ok ? {} : disableUsersOf(provider);
+      k.status = ok ? 'valid' : 'invalid';
+      k.testedAt = now();
+      bump();
+      record('key_tested', { fornecedor: provider, chave: `…${k.last4 ?? ''}`, resultado: ok ? 'aceite' : 'recusada', detalhe: detail.slice(0, 200), ...disabled });
       return view();
     },
-    async providerKey() {
-      return state.keyId ? (vault.get(state.keyId) ?? null) : null;
+    async providerKey(provider) {
+      const id = keys[provider].id;
+      return id ? (vault.get(id) ?? null) : null;
     },
-    async checkKey(_provider, _model, key) {
-      if (checkKey) return checkKey(key);
+    async checkKey(provider, _model, key) {
+      if (checkKey) return checkKey(key, provider);
       await new Promise((r) => setTimeout(r, 150));
       if (key.includes('invalida')) return { ok: false, definitive: true, reason: 'O fornecedor recusou a chave.' };
       if (key.includes('sem-rede')) return { ok: false, definitive: false, reason: 'Sem resposta do fornecedor. Tente de novo.' };
-      return { ok: true };
+      return { ok: true, formatChecked: provider === 'anthropic' };
     },
     async usage(actor) {
       assert(actor);
-      return { month: now().slice(0, 7), requests: 0, confirmed_usd: 0, unknown_usd: 0, reserved_usd: 0, in_flight: 0, unknown_attempts: 0, budget_usd: state.monthly_budget_usd };
+      return { month: now().slice(0, 7), requests: 0, confirmed_usd: 0, unknown_usd: 0, reserved_usd: 0, in_flight: 0, unknown_attempts: 0, image_usd: 0, budget_usd: settings.monthly_budget_usd };
+    },
+    async generation(actor) {
+      assert(actor);
+      return [];
     },
     async audit(actor) {
       assert(actor);

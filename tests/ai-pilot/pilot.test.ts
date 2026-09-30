@@ -8,7 +8,7 @@ import { attemptCeilingUsd, DEFAULT_LIMITS, inputTokenBound, utf8Bytes } from '.
 import { userMessage } from '../../supabase/functions/_shared/ai/prompt.ts';
 import { sentText } from '../../supabase/functions/_shared/ai/provider.ts';
 import { documentVersion, validateForDocument } from '../../src/ai/apply';
-import { buildElementContext } from '../../src/ai/context';
+import { buildScopeContext } from '../../src/ai/context';
 import { parseResponse } from '../../src/ai/proposers';
 import { createBoltEditor, ENGINE_VERSION } from '../../src/engine/createBoltEditor';
 import { setText } from '../../src/engine/operations';
@@ -128,10 +128,11 @@ describe.skipIf(!enabled)('Piloto do Assistente IA · pedidos reais (custo real)
         projectId,
         documentVersion: documentVersion(e),
         requestId: crypto.randomUUID(),
-        scope: { kind: 'element', id: el.getId() },
+        scope: { kind: 'element', id: el.getId(), pageId: e.Pages.getSelected()?.getId() ?? '' },
         device,
         instruction: c.instruction,
-        context: buildElementContext(e, el, device),
+        imageGeneration: false,
+        context: buildScopeContext(e, { kind: 'element', id: el.getId(), pageId: e.Pages.getSelected()?.getId() ?? '' }, device),
       };
       const started = Date.now();
       const { data, error } = await client.functions.invoke('ai-propose', { body: req });

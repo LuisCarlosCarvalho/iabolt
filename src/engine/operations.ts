@@ -1,4 +1,4 @@
-import type { Component, ComponentDefinition, Editor } from 'grapesjs';
+import type { Component, ComponentDefinition, Editor, Page } from 'grapesjs';
 import { cloneScopedRules, idMapOf, remapReferences } from './cloneRules';
 
 /** Operações do editor sobre o modelo do motor, endereçadas por id estável. */
@@ -16,6 +16,26 @@ export function findById(editor: Editor, id: string): Component | undefined {
     return undefined;
   };
   return walk(wrapper);
+}
+
+/** Procura em TODAS as páginas (a selecionada primeiro). Devolve o componente e a sua página. */
+export function findInProject(editor: Editor, id: string): { component: Component; page: Page } | undefined {
+  const selected = editor.Pages.getSelected();
+  const pages = editor.Pages.getAll();
+  const ordered = selected ? [selected, ...pages.filter((p) => p !== selected)] : pages;
+  for (const page of ordered) {
+    const walk = (c: Component): Component | undefined => {
+      if (c.getId() === id) return c;
+      for (const child of c.components().models) {
+        const hit = walk(child);
+        if (hit) return hit;
+      }
+      return undefined;
+    };
+    const hit = walk(page.getMainComponent());
+    if (hit) return { component: hit, page };
+  }
+  return undefined;
 }
 
 function requireById(editor: Editor, id: string): Component {
@@ -69,10 +89,14 @@ function replaceText(c: Component, text: string): void {
   c.components(asTextNode(text));
 }
 
-export function setText(editor: Editor, id: string, text: string): void {
-  const c = requireById(editor, id);
-  if (!isTextLike(c)) throw new Error(`Componente ${id} não é texto`);
+/** Substitui o texto de um componente (de qualquer página). */
+export function setTextOn(c: Component, text: string): void {
+  if (!isTextLike(c)) throw new Error(`Componente ${c.getId()} não é texto`);
   replaceText(c, text);
+}
+
+export function setText(editor: Editor, id: string, text: string): void {
+  setTextOn(requireById(editor, id), text);
 }
 
 export interface LinkPatch {
@@ -83,7 +107,11 @@ export interface LinkPatch {
 
 /** Texto e destino de ligações e botões. */
 export function setLink(editor: Editor, id: string, patch: LinkPatch): void {
-  const c = requireById(editor, id);
+  setLinkOn(requireById(editor, id), patch);
+}
+
+export function setLinkOn(c: Component, patch: LinkPatch): void {
+  const id = c.getId();
   if (!hasHref(c)) throw new Error(`Componente ${id} não é uma ligação`);
   if (patch.text !== undefined) {
     if (!isLink(c)) throw new Error(`O bloco de ligação ${id} não tem texto próprio`);
@@ -104,8 +132,11 @@ export function textTag(c: Component): TextTag | null {
 }
 
 export function setTextTag(editor: Editor, id: string, tag: TextTag): void {
-  const c = requireById(editor, id);
-  if (!textTag(c)) throw new Error(`Componente ${id} não é um título nem um parágrafo`);
+  setTextTagOn(requireById(editor, id), tag);
+}
+
+export function setTextTagOn(c: Component, tag: TextTag): void {
+  if (!textTag(c)) throw new Error(`Componente ${c.getId()} não é um título nem um parágrafo`);
   c.set('tagName', tag);
 }
 
@@ -192,15 +223,24 @@ export interface ImagePatch {
 }
 
 export function setImage(editor: Editor, id: string, patch: ImagePatch): void {
-  const c = requireById(editor, id);
-  if (!c.is('image')) throw new Error(`Componente ${id} não é uma imagem`);
+  setImageOn(requireById(editor, id), patch);
+}
+
+export function setImageOn(c: Component, patch: ImagePatch): void {
+  if (!c.is('image')) throw new Error(`Componente ${c.getId()} não é uma imagem`);
   if (patch.src !== undefined) c.set('src', patch.src);
   if (patch.alt !== undefined) c.addAttributes({ alt: patch.alt });
 }
 
 /** Clona a subárvore logo a seguir à origem e seleciona o clone. */
 export function duplicate(editor: Editor, id: string): Component {
-  const source = requireById(editor, id);
+  const added = duplicateComponent(editor, requireById(editor, id));
+  editor.select(added);
+  return added;
+}
+
+/** Clona a subárvore logo a seguir à origem (qualquer página), sem mudar a seleção. */
+export function duplicateComponent(editor: Editor, source: Component): Component {
   const parent = source.parent();
   if (!parent) throw new Error('A raiz não pode ser duplicada');
   const clone = source.clone();
@@ -210,7 +250,6 @@ export function duplicate(editor: Editor, id: string): Component {
   const ids = idMapOf(source, added);
   cloneScopedRules(editor, ids);
   remapReferences(added, ids);
-  editor.select(added);
   return added;
 }
 
@@ -317,13 +356,29 @@ export function canInsert(editor: Editor, def: ComponentDefinition, anchor: Comp
  * no histórico: desfazer remove a inserção.
  */
 export function insertAt(editor: Editor, def: ComponentDefinition, anchor: Component, position: InsertPosition): Component {
+  const added = insertDefAt(editor, def, anchor, position);
+  editor.select(added);
+  return added;
+}
+
+/** Como `insertAt`, sem mudar a seleção (qualquer página). */
+export function insertDefAt(editor: Editor, def: ComponentDefinition, anchor: Component, position: InsertPosition): Component {
   if (!canInsert(editor, def, anchor, position)) throw new Error('Este elemento não pode ser inserido nessa posição');
   const point = insertionPoint(anchor, position);
   if (!point) throw new Error('Posição inválida');
   const [added] = point.parent.append(def, { at: point.at });
   if (!added) throw new Error('Falha ao inserir o elemento');
-  editor.select(added);
   return added;
+}
+
+/** Move `c` para antes, depois ou dentro da âncora, se as regras dos tipos o permitirem. */
+export function moveRelative(editor: Editor, c: Component, anchor: Component, position: InsertPosition): void {
+  if (c === anchor || anchor.parents().includes(c)) throw new Error('Destino inválido: dentro de si próprio');
+  if (position === 'inside' && (isTextLike(anchor) || anchor.is('image'))) throw new Error('Destino inválido para este elemento');
+  const point = insertionPoint(anchor, position);
+  if (!point) throw new Error('Posição inválida');
+  if (!editor.Components.canMove(point.parent, c, point.at).result) throw new Error('Destino inválido para este elemento');
+  c.move(point.parent, { at: point.at });
 }
 
 /** Árvore mínima (id, tipo, filhos) para asserções e Navigator. */

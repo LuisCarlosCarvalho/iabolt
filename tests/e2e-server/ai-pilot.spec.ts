@@ -25,7 +25,7 @@ const created: string[] = [];
 
 declare global {
   interface Window {
-    __boltAiLastRequest?: { context: { capabilities: unknown; styles: Record<string, unknown> } };
+    __boltAiLastRequest?: { scope: { kind: string }; context: { target?: { capabilities: unknown; styles: Record<string, Record<string, unknown>> } } };
   }
 }
 
@@ -104,7 +104,7 @@ test('piloto real: título com cor herdada da variável → cor principal do tem
   const usage = body && typeof body === 'object' ? Reflect.get(body, 'usage') : null;
   console.log('Piloto (interface):', JSON.stringify({ status: res.status(), ms: Date.now() - started, usage }));
   expect(res.status()).toBe(200);
-  const ctx = await page.evaluate(() => window.__boltAiLastRequest?.context);
+  const ctx = await page.evaluate(() => window.__boltAiLastRequest?.context.target);
   const ctxColor = ctx?.styles.color;
   if (ctx) expect(ctxColor && typeof ctxColor === 'object' ? Reflect.get(ctxColor, 'variable') : null).toBe('--bolt-heading');
 
@@ -147,7 +147,7 @@ test('piloto real: título com cor herdada da variável → cor principal do tem
 
   // 4. Reabrir pela Dashboard.
   await page.goto('/');
-  await page.getByRole('link', { name: `Abrir ${name}` }).click();
+  await page.getByRole('link', { name: `Abrir ${name}`, exact: true }).click();
   await expect(page.getByTestId('save-status')).toHaveText(SAVED);
   await expect.poll(() => css(frame(page).locator('h1').first(), 'color')).toBe('rgb(15, 122, 58)');
   expect(await storedOwnColor(projectId, h1Id)).toBe('var(--bolt-primary)');
