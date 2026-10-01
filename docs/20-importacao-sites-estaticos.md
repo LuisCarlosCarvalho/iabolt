@@ -6,7 +6,7 @@
 | --- | --- |
 | **Implementado** | Leitor ZIP próprio, páginas, CSS literal por página, recursos locais, dependências externas, comportamentos dos scripts no runtime, mapa incorporado, relatório, pré-visualização em 3 larguras, HTML avulso com ficheiros em falta, duplicar página importada (corrigido). |
 | **Testado (local)** | Unitários (17, `tests/unit/staticImport.test.ts`), E2E sem rede (2, `tests/e2e/import-static.spec.ts`), comparação visual com rede real (1, `tests/e2e/import-static.visual.spec.ts`, `BOLT_VISUAL=1`), regressões: suite completa. |
-| **Validado no servidor (Supabase)** | **Pendente.** Os testes correram em modo local (IndexedDB). A cópia das imagens e dos fundos para o Storage usa a mesma via das outras importações (`store.upload`), mas **não foi exercitada** com esta importação: as referências permanentes (`bolt-asset:`) depois de F5, ao reabrir, no template e na cópia independente estão por verificar no servidor. |
+| **Validado no servidor (Supabase)** | **Sim (01/10/2026)**, ver «Validação no Supabase». Antes: **Pendente.** Os testes correram em modo local (IndexedDB). A cópia das imagens e dos fundos para o Storage usa a mesma via das outras importações (`store.upload`), mas **não foi exercitada** com esta importação: as referências permanentes (`bolt-asset:`) depois de F5, ao reabrir, no template e na cópia independente estão por verificar no servidor. |
 | **Não validado** | Os comportamentos do JavaScript original face aos do runtime não foram comparados visualmente (a comparação foi feita com o JavaScript original desligado). O mapa só foi verificado com rede real no teste visual (não faz parte da execução normal, que corre sem rede). |
 | **Publicado** | **Não.** Nada foi enviado para o Git nem para a Vercel. |
 
@@ -228,7 +228,15 @@ O teste E2E da amostra percorre:
 2. **`!important` que impede uma edição:** o inspetor deve indicar claramente que a alteração não tem efeito por causa de uma regra `!important` da folha importada, em vez de mostrar a edição como aplicada.
 3. **Barra contextual sobreposta:** a barra do elemento selecionado no canvas pode tapar elementos fixos do site no canto superior direito (ex.: o botão do menu).
 
-## Validação no Supabase (pendente)
+## Validação no Supabase (executada a 01/10/2026: passou)
+
+`npx playwright test --config playwright.server.config.ts`: `import-static.spec.ts` passou (27 s), com a conta de teste A.
+- Imagens e fundos guardados no Storage com 6 referências `bolt-asset:` permanentes.
+- Correm bem: F5, Dashboard, template e cópia independente com as mesmas referências.
+- Registo da importação = manifesto.
+- Limpeza feita, sem avisos.
+
+### Planeamento (como estava antes da execução)
 
 Próximo passo, com uma conta de teste (nunca a conta administrativa). Percurso: importar o ZIP → guardar imagens e fundos → F5 → reabrir → criar template → criar cópia independente → verificar as referências permanentes → limpar só os dados criados pelo teste.
 

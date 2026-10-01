@@ -256,3 +256,19 @@ Os custos, preços, reservas, orçamento e o consumo por pedido ficam visíveis 
 | `tests/unit/aiProviders.test.ts` | separador antigo recusado antes de reservar |
 | `tests/db/ai_settings.test.ts` | sem acesso direto a `ai_models`/`ai_settings`/`ai_settings_audit` |
 | `tests/server/ai.financeiro.test.ts` | NOVO, Supabase real, sem chamadas pagas: conta A sem preços, sem acesso às tabelas, `ai-image` antiga recusada |
+
+### Publicação (01/10/2026)
+
+- **Publicado:** `ff9553e` (Vercel).
+  - Funções `ai-image` e `ai-propose` republicadas.
+  - Migração `20261002120000` aplicada (ordem: funções → frontend → migração).
+- **Validado no Supabase real, sem chamadas pagas** (conta de teste A, utilizador comum):
+  - sem preços em `ai_status_v2`;
+  - sem acesso a `ai_usage`, `ai_models`, `ai_settings`, `ai_settings_audit` e `ai_provider_keys`;
+  - `ai-image` sem `client` → 409 antes de reservar;
+  - geração desativada → 503, sem valores.
+- **Não validado:**
+  - a geração real (desativada no servidor: falta a chave Google e ativar o modelo);
+  - a vista de administrador no site publicado.
+
+  O que configurar está em `docs/10`.

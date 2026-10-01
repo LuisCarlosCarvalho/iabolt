@@ -125,7 +125,50 @@ npm run test:server
 npm run test:e2e:server
 ```
 
-## Atualização de 01/10/2026 · Importação de sites estáticos (ZIP e HTML/CSS) (não publicado)
+## Atualização de 01/10/2026 · Publicação: importação ZIP, janela «Editar com IA», imagens e custos só para administradores
+
+**Publicado em 01/10/2026** (commit `ff9553e`; `master` avançado sem force push; os commits de documentação posteriores ficam só no ramo de trabalho até à próxima entrega, para não mostrar o aviso de versão nova aos separadores abertos sem necessidade).
+
+| | Estado |
+| --- | --- |
+| **Produção (Vercel `umbulab/bolt2`)** | https://bolt2-lake.vercel.app — `version.json` = `ff9553e…`; bundle verificado (`client:2`, «Vai alterar», aviso de versão nova) |
+| **Funções (Supabase `quihhoszhtivzwhcvnsd`)** | `ai-image` (era v2) e `ai-propose` (era v7) republicadas; `ai-admin` (v7) sem alterações, não republicada |
+| **Migração** | `20261002120000_ia_financeiro_so_admin.sql` aplicada (o `dry-run` só listava esta; histórico remoto igual ao local, sem reparação) |
+| **Ordem seguida** | funções → frontend → migração (ver `docs/18`, compatibilidade com separadores abertos) |
+
+**Implementado e testado com simulador (local):**
+- importação ZIP/HTML (`docs/20`);
+- janela «Editar com IA»;
+- imagem dentro do bloco selecionado (caso «Stationary»);
+- fundo gerado (caso do cabeçalho);
+- valores financeiros só para administradores;
+- aviso de versão nova.
+
+Testes: `npm run check` exit 0 (214); Playwright 78 passaram, 3 ignorados (visuais, só com rede).
+
+**Validado no Supabase real (sem chamadas pagas):**
+- `npm run test:server`: 17/17. Inclui `ai.financeiro.test.ts`, com a conta A, que não é administradora:
+  - `ai_whoami` = false;
+  - `ai_status_v2` sem preços;
+  - `ai_usage` vazio;
+  - `ai_models`/`ai_settings`/`ai_settings_audit`/`ai_provider_keys` recusados;
+  - `ai-image` antiga recusada antes de reservar;
+  - `ai-image` atual → `disabled`.
+- `npm run test:e2e:server`: 11 passaram, 1 ignorado (piloto pago). Inclui a importação do ZIP no servidor (imagens e fundos no Storage, F5, Dashboard, template e cópia independente).
+
+**Ainda pendente:**
+- **geração real de imagens:** a geração está desativada no servidor e não há chave Google;
+- validação visual do perfil de administrador no site publicado (precisa da sessão do administrador);
+- piloto pago (`docs/19`).
+
+**Para UMA geração real** (pelo administrador, no painel):
+1. Em «Configurações de IA › Credenciais», guardar a chave **Google** (Gemini API) no cartão Google e usar «Testar» (sem custo).
+2. Em «Geração de imagens», escolher Google / **Gemini 3.1 Flash Image** (0,067 USD por imagem), «Guardar modelo de imagens» e ativar «Geração de imagens».
+3. No editor, selecionar o bloco «Stationary», «Editar com IA» e escrever «Troca a imagem por um livro de matemática.». Confirmar «Gerar imagem», rever o antes/depois e aplicar.
+
+Custo estimado: até 0,067 USD da imagem, mais o pedido de edição (reserva máxima ≈ 0,12 USD com o Claude Sonnet 5.5; o custo real costuma ser menor). A geração só conta como validada depois deste teste.
+
+## Atualização de 01/10/2026 · Importação de sites estáticos (ZIP e HTML/CSS)
 
 - Implementada e testada localmente (modo local): ver `docs/20-importacao-sites-estaticos.md`.
 - Sem migrações nem alterações remotas. Sem commit, push ou deploy.
