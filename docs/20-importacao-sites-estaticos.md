@@ -232,6 +232,16 @@ O teste E2E da amostra percorre:
 
 Próximo passo, com uma conta de teste (nunca a conta administrativa). Percurso: importar o ZIP → guardar imagens e fundos → F5 → reabrir → criar template → criar cópia independente → verificar as referências permanentes → limpar só os dados criados pelo teste.
 
+**Preparado (não executado):** `tests/e2e-server/import-static.spec.ts`, com a conta de teste A de `.env.local` (contas `admin@…` são recusadas) e sem chamadas pagas:
+
+```
+npx playwright test --config playwright.server.config.ts import-static.spec.ts
+```
+
+O teste verifica: 6 referências `bolt-asset:<workspace>/library/…` no documento gravado (nunca `blob:` nem URLs assinados); os 2 fundos na folha importada com a referência permanente; as 4 imagens e os 2 fundos a carregar do Storage depois de F5, ao reabrir pela Dashboard e na cópia criada a partir do template, com as **mesmas** referências; o registo da importação (`format = zip`, manifesto); a cópia é independente do original.
+
+**Limpeza (só o que o teste criou):** o template é arquivado pelo nome; os 2 projetos são arquivados (a base de dados não permite apagar) e as 6 imagens que referem são removidas do Storage. O registo em `import_records` é imutável por desenho e fica, ligado ao projeto arquivado. Nota: o teste também corre dentro de `npm run test:e2e:server` (todos os ficheiros de `tests/e2e-server`).
+
 ## Ficheiros
 
 | Pasta | Ficheiros |
