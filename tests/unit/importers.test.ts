@@ -72,7 +72,11 @@ describe('Deteção do formato pelo conteúdo', () => {
   });
 });
 
-describe('GrapesJS Studio', () => {
+// Conversão completa de uma amostra real (≈1,3 s sozinha). Com os 22 ficheiros em paralelo no
+// OneDrive chegou a 5,1–5,4 s; o limite de 20 s cobre essa carga, não é uma correção de desempenho.
+const HEAVY = { timeout: 20_000 };
+
+describe('GrapesJS Studio', HEAVY, () => {
   it('converte os tipos do Studio preservando hierarquia, classes, níveis de título e ligações', async () => {
     const src = source(STUDIO);
     const before = countTypes(must(src.pages[0]?.frames[0], 'frame').component);
@@ -153,7 +157,7 @@ describe('GrapesJS Studio', () => {
   });
 });
 
-describe('Elementor', () => {
+describe('Elementor', HEAVY, () => {
   it('converte containers e widgets para componentes Bolt, com contagens iguais às da origem', async () => {
     const raw = JSON.parse(readSample(ELEMENTOR));
     const widgets: Record<string, number> = {};

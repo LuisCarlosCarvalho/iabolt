@@ -1,6 +1,6 @@
 import type { Editor } from 'grapesjs';
 import { AlertTriangle, Check, HelpCircle, ImagePlus, Info, Maximize2, Sparkles, Upload, Wand2, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AI_CONTRACT_VERSION,
   AI_SCOPE_KINDS,
@@ -30,7 +30,8 @@ import {
 } from '../ai/apply';
 import { buildScopeContext, capabilitiesOf, planParts, resolveScope, type ContextPart, type ResolvedScope } from '../ai/context';
 import { estimateRequestUsd, formatUsd } from '../ai/cost';
-import { ServerImageGenerator, ServerProposer, SimulatedImageGenerator, SimulatedProposer, type ImageGenerator, type Proposer } from '../ai/proposers';
+import type { ImageGenerator } from '../ai/proposers';
+import { canvasSettled, describeHidden, hiddenStyleChanges } from '../ai/visibility';
 import type { AiStatus } from '../admin/aiAdminClient';
 import type { AssetUrlMap } from '../assets/assetRefs';
 import { ACCEPTED_IMAGE_TYPES, type LibraryImage } from '../assets/assetStore';
@@ -43,6 +44,7 @@ import { previewDocument } from '../engine/runtime';
 import { deviceById, DEVICES, type DeviceId } from '../engine/styles';
 import { pageImages } from './images';
 import { previewSize, ScaledPreview } from './ScaledPreview';
+import { useAssistant } from './useAssistant';
 
 /**
  * Painel «Assistente IA». O utilizador escolhe EXPLICITAMENTE o âmbito (elemento, secção, página,
@@ -104,7 +106,7 @@ type Phase =
   | { kind: 'proposal'; proposal: Proposal }
   | { kind: 'clarify'; question: string; options: NonNullable<AiProposal['clarification']>['options']; summary: string }
   | { kind: 'error'; message: string; details?: string[] }
-  | { kind: 'applied'; count: number; pages: number };
+  | { kind: 'applied'; count: number; pages: number; hidden: string[] };
 
 interface Plan {
   parts: ContextPart[];
@@ -113,31 +115,6 @@ interface Plan {
   error?: string;
   /** Estado do documento (contador de alterações) para o qual o plano foi calculado. */
   version: number;
-}
-
-/**
- * Modo local: simuladores (proposta e imagens). Modo servidor: só existe se a configuração central
- * o tiver ativo (ai_status). Mesmo com esta página aberta, desativar no painel bloqueia os pedidos
- * seguintes no servidor.
- */
-function useAssistant(): { proposer: Proposer | null; images: ImageGenerator | null; status: AiStatus | null } {
-  const { mode, auth, ai } = useServices();
-  const [status, setStatus] = useState<AiStatus | null>(null);
-  useEffect(() => {
-    let alive = true;
-    ai.status()
-      .then((st) => alive && setStatus(st))
-      .catch(() => alive && setStatus({ enabled: false, modelLabel: null }));
-    return () => {
-      alive = false;
-    };
-  }, [ai]);
-  return useMemo(() => {
-    if (mode === 'local') return { proposer: new SimulatedProposer(), images: new SimulatedImageGenerator(), status };
-    if (!auth || !status?.enabled) return { proposer: null, images: null, status };
-    const images = status.image?.enabled && status.image.priceUsd !== null ? new ServerImageGenerator(auth.client, status.image.label ?? 'Imagens', status.image.priceUsd) : null;
-    return { proposer: new ServerProposer(auth.client, status.modelLabel ?? 'Assistente IA'), images, status };
-  }, [mode, auth, status]);
 }
 
 /** Pedido sem identificador nem versão (o plano estima o custo com ele). */
@@ -190,6 +167,7 @@ export function AiAssistantPanel({
   urls,
   device: editingDevice,
   focusRequest = 0,
+  prefill,
 }: {
   editor: Editor;
   projectId: string;
@@ -197,6 +175,8 @@ export function AiAssistantPanel({
   urls: AssetUrlMap;
   device: DeviceId;
   focusRequest?: number;
+  /** Texto vindo da janela rápida «Editar com IA» (o contador muda a cada pedido). */
+  prefill?: { text: string; n: number };
 }) {
   const { proposer, images, status } = useAssistant();
   const { assets } = useServices();
@@ -208,6 +188,13 @@ export function AiAssistantPanel({
   useEffect(() => {
     if (focusRequest > 0) instructionRef.current?.focus();
   }, [focusRequest]);
+  const prefillN = prefill?.n ?? 0;
+  const prefillText = prefill?.text ?? '';
+  const [prefilled, setPrefilled] = useState(0);
+  if (prefillN > prefilled) {
+    setPrefilled(prefillN);
+    setInstruction(prefillText);
+  }
   // O dispositivo do assistente acompanha o do editor, salvo escolha própria.
   const [override, setOverride] = useState<{ from: DeviceId; value: AiDevice } | null>(null);
   const device: AiDevice = override && override.from === editingDevice ? override.value : editingDevice;
@@ -364,8 +351,13 @@ export function AiAssistantPanel({
       applyOperations(editor, p.ops, ready);
       releaseImages(choices);
       setChoices(new Map());
-      setPhase({ kind: 'applied', count, pages });
       setInstruction('');
+      // Confirma no canvas que os estilos aplicados se veem (num site importado, uma regra com
+      // !important pode prevalecer): se não, diz-o em vez de dar a alteração como feita.
+      setPhase({ kind: 'applied', count, pages, hidden: [] });
+      await canvasSettled(editor);
+      const hidden = hiddenStyleChanges(editor, p.ops, editingDevice).map(describeHidden);
+      if (alive.current && hidden.length) setPhase({ kind: 'applied', count, pages, hidden });
     } catch {
       setPhase({ kind: 'error', message: 'A aplicação falhou e o documento foi reposto como estava. Nada foi alterado.' });
     }
@@ -530,6 +522,21 @@ export function AiAssistantPanel({
             Alterações aplicadas ({phase.count}
             {phase.pages > 1 ? ` em ${phase.pages} páginas` : ''}). Um só «Desfazer» reverte o lote inteiro.
           </p>
+        </div>
+      )}
+      {phase.kind === 'applied' && phase.hidden.length > 0 && (
+        <div className="notice ai-message" role="alert" data-testid="ai-hidden">
+          <AlertTriangle aria-hidden="true" />
+          <div>
+            <p>
+              <strong>Parte da alteração não se vê na página.</strong>
+            </p>
+            <ul>
+              {phase.hidden.map((h) => (
+                <li key={h}>{h}</li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
 

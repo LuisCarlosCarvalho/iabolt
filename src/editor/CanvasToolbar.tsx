@@ -12,7 +12,7 @@ import { useEditorTick } from './useEditorTick';
  * operações do resto do editor (modelo, histórico e gravação do motor).
  * A posição acompanha scroll, zoom, dispositivo e mudanças de tamanho (medida por fotograma).
  */
-interface Box {
+export interface Box {
   top: number;
   left: number;
   width: number;
@@ -42,7 +42,7 @@ function hasOnActive(view: object): view is { onActive(ev: MouseEvent): unknown 
 }
 
 /** Retângulo do elemento no referencial do contentor do canvas (tem em conta o zoom). */
-function measure(editor: Editor, c: Component, host: HTMLElement): Box | null {
+export function measure(editor: Editor, c: Component, host: HTMLElement): Box | null {
   const el = c.getEl();
   const frame = editor.Canvas.getFrameEl();
   if (!el || !frame || !el.isConnected) return null;
@@ -68,6 +68,7 @@ export function CanvasToolbar({
   /** Abrir o painel «Adicionar» com o destino escolhido aqui (antes, dentro ou depois). */
   onOpenBlocksPanel?: (target: { anchorId: string; position: InsertPosition }) => void;
   /** Abrir o Assistente IA com este elemento (o mesmo painel, contexto e seleção). Não altera o documento. */
+  /** «Editar com IA»: abre a janela rápida junto ao elemento. */
   onOpenAi?: (c: Component) => void;
 }) {
   useEditorTick(editor);

@@ -466,6 +466,24 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ui-primary); }
 .insert-popover .ct-btn { color: var(--ui-muted); }
 .insert-popover .ct-btn:hover { background: var(--ui-surface-2); color: var(--ui-text); }
 .canvas-toolbar-error { position: absolute; z-index: 6; margin: 0; padding: 6px 10px; border-radius: var(--ui-radius-sm); background: var(--ui-popover); border: 1px solid var(--ui-border); }
+.ai-quick { position: absolute; z-index: 8; padding: 10px 12px 12px; border-radius: var(--ui-radius); border: 1px solid var(--ui-border); background: var(--ui-popover); color: var(--ui-text); box-shadow: var(--ui-shadow); display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.ai-quick-head { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.ai-quick-head > svg { width: 15px; height: 15px; color: var(--ui-primary); }
+.ai-quick-target { color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.ai-quick-close { margin-left: auto; }
+.ai-quick .textarea { min-height: 72px; resize: vertical; }
+.ai-quick-hint { margin: 0; font-size: 11.5px; }
+.ai-quick-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.ai-quick-result { margin: 0; padding-top: 8px; border-top: 1px solid var(--ui-border); font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.ai-quick-result p { margin: 0; }
+.ai-quick-ok { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.ai-quick-ok svg { width: 15px; height: 15px; color: var(--ui-success); }
+.ai-quick-lines { margin: 0; padding-left: 18px; color: var(--ui-muted); }
+.ai-quick-lines s { opacity: .7; }
+.ai-quick-warn { display: flex; gap: 8px; padding: 8px 10px; border-radius: var(--ui-radius-sm); border: 1px solid var(--ui-warning-line); background: var(--ui-warning-soft); color: var(--ui-notice-text); font-size: 12px; }
+.ai-quick-warn svg { width: 15px; height: 15px; flex: none; margin-top: 1px; }
+.ai-quick-warn ul { margin: 4px 0 0; padding-left: 16px; }
+.ai-quick-warn p { margin: 0; }
 .insert-popover { position: absolute; z-index: 7; width: 290px; padding: 10px; border-radius: var(--ui-radius); border: 1px solid var(--ui-border); background: var(--ui-popover); color: var(--ui-text); box-shadow: var(--ui-shadow); display: flex; flex-direction: column; gap: 8px; }
 .insert-head { display: flex; align-items: center; justify-content: space-between; }
 .insert-positions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 3px; border-radius: var(--ui-radius-sm); background: var(--ui-surface-2); }

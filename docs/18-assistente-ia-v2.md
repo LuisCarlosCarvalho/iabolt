@@ -157,3 +157,12 @@ Não há compatibilidade genérica com «qualquer API». Para um fornecedor novo
 
 1. Autorizar o plano de publicação (secção 5).
 2. Teste real mínimo (pago, cerca de 0,01–0,03 USD): um pedido de edição a um título. Depois, se autorizar, **uma** imagem gerada com Gemini 3.1 Flash Image (0,067 USD).
+
+## Janela rápida «Editar com IA» (01/10/2026, não publicado)
+
+- **O quê:** o botão «Editar com IA» da barra do elemento abre uma janela pequena junto ao elemento (por baixo; por cima se não couber; nunca fora do canvas), com o pedido, «Alterar» e «Mais opções».
+- **«Alterar»** (ou Ctrl+Enter): pede a proposta para o âmbito «Elemento» e, se passar na validação, **aplica logo**, num só «Desfazer» (também disponível na própria janela). Mostra o que mudou (antes → depois).
+- **Mesmas regras do painel:** o mesmo contrato, validação, limites e custo (custo máximo estimado mostrado antes de enviar; simulador sem custo no modo local). Sem geração de imagens.
+- **Não aplica** o que precisa de decisão: esclarecimento, imagens a escolher/carregar, pedido grande, proposta inválida ou documento alterado durante a espera. Diz «Nada foi alterado» e oferece «Continuar no assistente» (o painel abre com o mesmo texto).
+- **Estilos que não se veem:** depois de aplicar (na janela e no painel), o canvas é verificado. Se uma regra do site prevalecer (ex.: `.text-muted` do Bootstrap com `!important`), aparece «Parte da alteração não se vê na página», com a regra e o valor visível, em vez de dar a alteração como feita.
+- **Testes (locais, simulador):** `tests/unit/aiQuickEdit.test.ts` (3), `tests/e2e/ai-shortcut.spec.ts` (2, reescrito: o botão passou a abrir a janela), `tests/e2e/import-static.spec.ts` (janela no site importado e aviso de `!important`). Sem chamadas pagas; o fornecedor real não foi testado com a janela.

@@ -68,6 +68,7 @@ test('[simulado] imagem e fundo substituídos em separado: gerar (com custo most
   // 1. Imagem: gerar (simulador), com confirmação; a atual só muda ao aplicar.
   await img.click();
   await page.getByTestId('ct-ai').click();
+  await page.getByTestId('ai-quick-more').click(); // imagens geradas: no painel completo
   await expect(page.getByTestId('ai-scope-name')).toContainText('Elemento · Imagem');
   await ask(page, 'imagem: gerar um parque infantil ao sol');
   await expect(page.getByTestId('ai-changes')).toContainText('Imagem');

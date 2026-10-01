@@ -211,22 +211,40 @@ test('ZIP do Stylish Portfolio: importar, pré-visualizar, editar, guardar, reab
   await expectEdits();
 
   // ---------------------------------------------------------------- assistente (simulador, sem custo)
+  // Janela rápida «Editar com IA»: aplica logo; a cor do título vê-se.
   await canvas(page).locator('h1').click();
   await page.getByTestId('ct-ai').click();
-  await expect(page.getByTestId('left-panel')).toHaveAttribute('data-tool', 'ai');
-  await expect(page.getByTestId('ai-engine')).toHaveText(/Simulador · sem IA/);
-  await expect(page.getByTestId('ai-scope-name')).toContainText('Título');
-  await page.getByTestId('ai-instruction').fill('texto: Portfólio com IA');
-  await page.getByTestId('ai-propose').click();
-  await expect(page.getByTestId('ai-change')).toHaveCount(1);
+  await expect(page.getByTestId('ai-quick')).toContainText('Título');
+  await page.getByTestId('ai-quick-input').fill('texto: Portfólio com IA; cor #b91c1c');
+  await page.getByTestId('ai-quick-apply').click();
+  await expect(canvas(page).locator('h1')).toHaveText('Portfólio com IA');
+  await expect.poll(() => canvas(page).locator('h1').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(185, 28, 28)');
+  await expect(page.getByTestId('ai-quick-hidden')).toHaveCount(0);
   // O contexto não leva a folha de estilos importada.
   const sent = await page.evaluate(() => JSON.stringify(window.__boltAiLastRequest ?? null));
   expect(sent).not.toContain('--bs-primary');
   expect(sent.length).toBeLessThan(60_000);
-  await page.getByTestId('ai-apply').click();
-  await expect(canvas(page).locator('h1')).toHaveText('Portfólio com IA');
-  await page.getByTestId('undo').click();
+  await page.getByTestId('ai-quick-undo').click();
   await expect(canvas(page).locator('h1')).toHaveText('Portfólio Bolt');
+  await page.keyboard.press('Escape');
+
+  // Regra do site com !important (Bootstrap «.text-muted» no rodapé): a cor fica gravada mas
+  // não se vê. A janela di-lo em vez de dar a alteração como feita.
+  const muted = canvas(page).locator('footer p.text-muted');
+  await muted.click();
+  await page.getByTestId('ct-ai').click();
+  await page.getByTestId('ai-quick-input').fill('cor #ff0000');
+  await page.getByTestId('ai-quick-apply').click();
+  await expect(page.getByTestId('ai-quick-hidden')).toContainText('«.text-muted» do site tem !important');
+  // No fundo da página, a janela continua dentro do canvas e o aviso fica à vista.
+  await expect(page.getByTestId('ai-quick-hidden')).toBeInViewport();
+  const qb = await page.getByTestId('ai-quick').boundingBox();
+  const hb = await page.locator('.canvas-wrap').boundingBox();
+  if (!qb || !hb) throw new Error('caixas');
+  expect(qb.y + qb.height).toBeLessThanOrEqual(hb.y + hb.height + 1);
+  expect(await muted.evaluate((el) => getComputedStyle(el).color)).not.toBe('rgb(255, 0, 0)');
+  await page.getByTestId('ai-quick-undo').click();
+  await page.keyboard.press('Escape');
 
   // ---------------------------------------------------------------- template e cópia independente
   await page.getByTestId('save-as-template').click();
