@@ -420,6 +420,12 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ui-primary); }
 .total-nao-suportado strong { color: var(--ui-danger-text); }
 .report-details details { border: 1px solid var(--ui-border); border-radius: var(--ui-radius); background: var(--ui-surface); margin-bottom: 10px; }
 .report-details summary { cursor: pointer; padding: 10px 12px; font-weight: 600; }
+.site-pages { border: 1px solid var(--ui-border); border-radius: var(--ui-radius); background: var(--ui-surface); margin-bottom: 10px; }
+.site-pages summary { cursor: pointer; padding: 10px 12px; font-weight: 600; }
+.site-pages .report-table { margin: 0 12px 12px; }
+.site-pages > .btn { margin: 0 12px 12px; }
+.import-missing { margin-bottom: 10px; }
+.import-missing .asset-list { margin: 8px 0; padding-left: 18px; }
 .report-details ul, .report-table { margin: 0 12px 12px; }
 .report-table { border-collapse: collapse; width: calc(100% - 24px); font-size: 12.5px; }
 .report-table th, .report-table td { text-align: left; padding: 6px 4px; border-top: 1px solid var(--ui-border); vertical-align: top; }

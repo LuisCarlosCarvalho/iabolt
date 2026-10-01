@@ -61,8 +61,14 @@ describe('Deteção do formato pelo conteúdo', () => {
     expect(detectFormat('{"a":1}').format).toBe('unknown');
   });
 
-  it('formatos detetados mas não implementados dão erro claro', async () => {
-    await expect(analyzeImport({ name: 'x.html', type: 'text/html', size: 10, text: async () => '<p>olá</p>' }, offline())).rejects.toThrow(/ainda não é suportado/i);
+  it('HTML avulso é importado como página (a importação de sites estáticos tem testes próprios)', async () => {
+    const a = await analyzeImport({ name: 'x.html', type: 'text/html', size: 10, text: async () => '<p>olá</p>' }, offline());
+    expect(a.report.format).toBe('html');
+    expect(a.projectData.pages).toHaveLength(1);
+  });
+
+  it('conteúdo não reconhecido dá erro claro com os formatos disponíveis', async () => {
+    await expect(analyzeImport({ name: 'x.json', type: 'application/json', size: 7, text: async () => '{"a":1}' }, offline())).rejects.toThrow(/Formato não reconhecido.*ZIP de site estático/);
   });
 });
 

@@ -54,6 +54,8 @@ export function previewDocument(data: GrapesProjectData, opts: { interactive?: b
     'img-src * data: blob:',
     'font-src * data:',
     'media-src * data: blob:',
+    // Só mapas do Google incorporados (o único iframe que a importação aceita).
+    'frame-src https://maps.google.com https://www.google.com',
     "form-action 'none'",
     "base-uri 'none'",
   ].join('; ');

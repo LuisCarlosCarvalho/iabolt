@@ -12,6 +12,7 @@ import {
   type AiScopeKind,
   type AiVariable,
 } from '../../supabase/functions/_shared/ai/contract.ts';
+import { isInternalComponent } from '../engine/boltTypes';
 import { readGlobalStyles, resolveValue, variableOf } from '../engine/globalStyles';
 import { contentHint, displayName } from '../engine/labels';
 import { findInProject, hasHref, isLinkBox, isPlainText, isTextLike, textTag } from '../engine/operations';
@@ -35,6 +36,7 @@ const cut = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)
 export function plainText(c: Component): string {
   const walk = (x: Component): string => {
     if (x.get('type') === 'textnode') return String(x.get('content') ?? '');
+    if (isInternalComponent(x)) return '';
     const own = String(x.get('content') ?? '');
     return own + x.components().models.map(walk).join('');
   };
@@ -146,7 +148,7 @@ function nodeOf(editor: Editor, c: Component, device: AiDevice, inScope: boolean
 function subtree(c: Component): Component[] {
   const out: Component[] = [];
   const walk = (x: Component) => {
-    if (x.get('type') === 'textnode') return;
+    if (x.get('type') === 'textnode' || isInternalComponent(x)) return;
     out.push(x);
     x.components().models.forEach(walk);
   };

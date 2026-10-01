@@ -1,6 +1,7 @@
 import type { Component, Editor } from 'grapesjs';
 import { ChevronRight, Columns2, Footprints, Heading, Image as ImageIcon, LayoutPanelTop, Link2, Menu, MousePointerClick, PanelsTopLeft, RectangleHorizontal, Square, Type } from 'lucide-react';
 import { useState, type DragEvent, type ReactNode } from 'react';
+import { isInternalComponent } from '../engine/boltTypes';
 import { contentHint, displayName } from '../engine/labels';
 import { canPlace, findById, isTextLike, move } from '../engine/operations';
 
@@ -29,7 +30,7 @@ function iconFor(c: Component): ReactNode {
 /** Filhos navegáveis: sem nós de texto e sem a formatação interna dos textos. */
 export function navigableChildren(c: Component): Component[] {
   if (isTextLike(c) || c.is('image')) return [];
-  return c.components().models.filter((child) => child.get('type') !== 'textnode');
+  return c.components().models.filter((child) => child.get('type') !== 'textnode' && !isInternalComponent(child));
 }
 
 /** Ícones e o SVG lá dentro: detalhe interno, fechado por omissão (abre-se na seta ou ao selecionar lá dentro). */

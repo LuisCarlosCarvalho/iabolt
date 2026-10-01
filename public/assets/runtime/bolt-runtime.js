@@ -34,9 +34,99 @@
     for (var i = 0; i < toggles.length; i++) toggles[i].setAttribute('aria-expanded', open ? 'true' : 'false');
   }
 
+  // ---------------------------------------------------------------- alternar classe (sites importados)
+  // data-bolt-toggle="<seletor do alvo>", data-bolt-toggle-class (classe no alvo),
+  // data-bolt-toggle-self (classe no próprio botão), data-bolt-toggle-swap="a b" (troca de ícone).
+  function targetsOf(sel) {
+    try {
+      return doc.querySelectorAll(sel);
+    } catch {
+      return [];
+    }
+  }
+
+  function runToggle(trigger) {
+    var cls = trigger.getAttribute('data-bolt-toggle-class') || 'active';
+    var targets = targetsOf(trigger.getAttribute('data-bolt-toggle') || '');
+    var open = false;
+    for (var i = 0; i < targets.length; i++) open = targets[i].classList.toggle(cls) || open;
+    var self = trigger.getAttribute('data-bolt-toggle-self');
+    if (self) trigger.classList.toggle(self, open);
+    var swap = (trigger.getAttribute('data-bolt-toggle-swap') || '').split(/\s+/);
+    if (swap.length === 2 && swap[0] && swap[1]) {
+      var icons = trigger.querySelectorAll('.' + swap[0] + ', .' + swap[1]);
+      for (var j = 0; j < icons.length; j++) {
+        icons[j].classList.toggle(swap[0], !open);
+        icons[j].classList.toggle(swap[1], open);
+      }
+    }
+    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  // ---------------------------------------------------------------- mostrar depois de rolar
+  // data-bolt-show-after="<px>", data-bolt-show-effect="fade" (opacidade, como o original).
+  function scrollTop() {
+    var se = doc.scrollingElement || doc.documentElement;
+    return se ? se.scrollTop : window.pageYOffset || 0;
+  }
+  function fade(el, show) {
+    if (el.__boltFade) window.cancelAnimationFrame(el.__boltFade);
+    if (reduceMotion || el.getAttribute('data-bolt-show-effect') !== 'fade') {
+      el.style.opacity = show ? '1' : '';
+      el.style.display = show ? 'block' : 'none';
+      return;
+    }
+    var value = show ? 0 : 1;
+    el.style.opacity = String(value);
+    if (show) el.style.display = 'block';
+    (function step() {
+      value += show ? 0.1 : -0.1;
+      if (show ? value >= 1 : value <= 0) {
+        el.style.opacity = show ? '1' : '0';
+        if (!show) el.style.display = 'none';
+        el.__boltFade = 0;
+        return;
+      }
+      el.style.opacity = String(value);
+      el.__boltFade = window.requestAnimationFrame(step);
+    })();
+  }
+  function updateShown() {
+    var els = doc.querySelectorAll('[data-bolt-show-after]');
+    var top = scrollTop();
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      var visible = top > (Number(el.getAttribute('data-bolt-show-after')) || 0);
+      if (el.__boltShown === visible) continue;
+      // Estado inicial (escondido pelo CSS do site): só se mexe quando muda.
+      if (el.__boltShown === undefined && !visible) {
+        el.__boltShown = false;
+        continue;
+      }
+      el.__boltShown = visible;
+      fade(el, visible);
+    }
+  }
+  window.addEventListener('scroll', updateShown, { passive: true });
+
+  // Desloca só ESTA janela (scrollIntoView também deslocaria a página da aplicação à volta do iframe).
+  function scrollToElement(el, block) {
+    var r = el.getBoundingClientRect();
+    var top = r.top + (window.pageYOffset || 0) - (block === 'center' ? Math.max(0, (window.innerHeight - r.height) / 2) : 0);
+    window.scrollTo({ top: Math.max(0, top), behavior: block === 'center' || reduceMotion ? 'auto' : 'smooth' });
+  }
+
   // Fase de captura: o canvas do editor interrompe a propagação dos cliques (seleção).
   doc.addEventListener('click', function (ev) {
     var t = ev.target;
+    // Antes das âncoras: um botão «#» que abre um menu não desloca a página.
+    var toggler = closest(t, '[data-bolt-toggle]');
+    if (toggler) {
+      var href = toggler.getAttribute('href');
+      if (href === null || href === '' || href === '#') ev.preventDefault();
+      runToggle(toggler);
+      if (href === null || href === '' || href === '#') return;
+    }
     // Pré-visualização: ligações para páginas do projeto («/slug») não navegam no iframe (que
     // abriria rotas da aplicação); o editor mostra a página pedida. Âncoras (#) e endereços
     // externos mantêm o comportamento habitual. No canvas (modo editor) nada disto se aplica.
@@ -59,7 +149,7 @@
           id = target.slice(1);
         }
         var dest = id ? doc.getElementById(id) : null;
-        if (dest) dest.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (dest) scrollToElement(dest, 'start');
         else if (!id) window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
@@ -96,7 +186,7 @@
     if (ev.key !== 'Enter' && ev.key !== ' ') return;
     var t = ev.target;
     if (!t || !t.matches) return;
-    if (t.matches('[data-bolt-type="menu-toggle"], [data-bolt-type="carousel-prev"], [data-bolt-type="carousel-next"], [data-bolt-bullet]')) {
+    if (t.matches('[data-bolt-toggle]:not(a), [data-bolt-type="menu-toggle"], [data-bolt-type="carousel-prev"], [data-bolt-type="carousel-next"], [data-bolt-bullet]')) {
       ev.preventDefault();
       t.click();
     }
@@ -407,10 +497,11 @@
   function start() {
     scan();
     previewNotices();
+    updateShown();
     // Pré-visualização com foco (ex.: antes/depois do assistente): mostra o elemento em causa.
     var focus = mode === 'preview' && doc.body ? doc.body.getAttribute('data-bolt-focus') : null;
     var target = focus ? doc.getElementById(focus) : null;
-    if (target) target.scrollIntoView({ block: 'center' });
+    if (target) scrollToElement(target, 'center');
     if (window.MutationObserver) {
       new MutationObserver(function (list) {
         for (var i = 0; i < list.length; i++) {

@@ -14,6 +14,14 @@ export function isTopLevelType(type: string | undefined): boolean {
   return TOP_LEVEL.has(type ?? '');
 }
 
+/** Tipo da folha de estilos importada (CSS literal de um site estático). */
+export const STYLESHEET_TYPE = 'bolt-stylesheet';
+
+/** Componentes internos que não são conteúdo da página (camadas, assistente, operações). */
+export function isInternalComponent(c: Component): boolean {
+  return c.get('type') === STYLESHEET_TYPE;
+}
+
 function structural(editor: Editor, type: string, tagName: string, boltType: string, extra: Record<string, unknown> = {}): void {
   editor.Components.addType(type, {
     isComponent: (el) => el.tagName === tagName.toUpperCase() && el.dataset?.boltType === boltType,
@@ -96,6 +104,29 @@ export function boltTypesPlugin(editor: Editor): void {
   editor.Components.addType('bolt-input', {
     isComponent: (el) => el.tagName === 'INPUT',
     model: { defaults: { tagName: 'input', void: true, droppable: false, attributes: { 'data-bolt-type': 'input', type: 'text' } } },
+  });
+
+  // Folha de estilos de um site importado: o CSS original, literal e pela ordem original (ver
+  // importers/static/site.ts). Não é um elemento da página: não se seleciona, não aparece nas
+  // camadas e não se move, copia nem apaga. Só existe dentro da página a que pertence.
+  editor.Components.addType(STYLESHEET_TYPE, {
+    isComponent: (el) => el.tagName === 'STYLE' && el.dataset?.boltType === 'stylesheet',
+    model: {
+      defaults: {
+        tagName: 'style',
+        attributes: { 'data-bolt-type': 'stylesheet' },
+        selectable: false,
+        hoverable: false,
+        highlightable: false,
+        layerable: false,
+        draggable: false,
+        droppable: false,
+        copyable: false,
+        removable: false,
+        editable: false,
+        stylable: false,
+      },
+    },
   });
 
   // Nomes legíveis no destaque do canvas, derivados do modelo (sem os gravar).

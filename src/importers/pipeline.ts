@@ -6,6 +6,9 @@ import { sweepAllPages } from '../engine/identity';
 import { parseCss, type StyleJson } from './css';
 import { convertElementor, isElementorDocument, type ElementorFontRequest } from './elementor/elementor';
 import { convertGrapesJs, isGrapesJsProject } from './grapesjs/studio';
+import { baseName, mergeSites, siteFromFiles, siteFromZip, type SiteFiles } from './static/files';
+import { convertStaticSite, type PageCandidate, type StaticOptions } from './static/site';
+import { isZip, ZipError } from './static/zip';
 import type { AdapterResult, AssetEntry, FontEntry, ImportFormatId, ImportReport, RawProjectData } from './types';
 
 /**
@@ -25,8 +28,8 @@ export interface FormatInfo {
 export const FORMATS: readonly FormatInfo[] = [
   { id: 'grapesjs', label: 'GrapesJS / GrapesJS Studio (.json, .grapesjs)', available: true, note: 'JSON de projeto' },
   { id: 'elementor', label: 'Elementor (modelo .json)', available: true, note: 'containers flexbox e widgets comuns' },
-  { id: 'html', label: 'HTML/CSS', available: false, note: 'fase seguinte' },
-  { id: 'zip', label: 'ZIP de site estático', available: false, note: 'fase seguinte' },
+  { id: 'html', label: 'HTML/CSS (com os ficheiros de CSS e imagens)', available: true, note: 'escolha a página e os recursos de uma vez' },
+  { id: 'zip', label: 'ZIP de site estático', available: true, note: 'páginas HTML, CSS, imagens e fontes locais' },
 ];
 
 export interface Detection {
@@ -58,10 +61,15 @@ export interface Dependencies {
   fetch: typeof fetch;
   /** Verifica se uma imagem carrega num <img> (funciona sem CORS). */
   probeImage: (url: string) => Promise<boolean>;
+  /** URL temporário para mostrar um ficheiro local na pré-visualização (sites estáticos). */
+  objectUrl?: (blob: Blob) => string;
+  revokeObjectUrl?: (url: string) => void;
 }
 
 export function browserDependencies(): Dependencies {
   return {
+    objectUrl: (blob) => URL.createObjectURL(blob),
+    revokeObjectUrl: (url) => URL.revokeObjectURL(url),
     fetch: (input, init) => fetch(input, init),
     probeImage: (url) =>
       new Promise((resolve) => {
@@ -87,6 +95,27 @@ export interface ImportAnalysis {
   original: { name: string; type: string; text: string };
   /** Imagens que podem ser copiadas, já lidas (evita segundo pedido na confirmação). */
   blobs: Map<string, Blob>;
+  /** Liberta os URLs temporários da pré-visualização (ao cancelar ou depois de importar). */
+  release: () => void;
+  /** Sites estáticos: ficheiros e escolha de páginas (para voltar a analisar com outra escolha). */
+  site?: { files: SiteFiles; candidates: PageCandidate[]; pages: string[]; home: string; localBlobs: Map<string, Blob> };
+}
+
+/** Ficheiro recebido pela importação (File no browser; objetos equivalentes nos testes). */
+export interface ImportFile {
+  name: string;
+  type: string;
+  size: number;
+  text: () => Promise<string>;
+  arrayBuffer?: () => Promise<ArrayBuffer>;
+  webkitRelativePath?: string;
+}
+
+export interface ImportOptions {
+  /** Ficheiros associados (HTML avulso: CSS, imagens…; ou recursos em falta acrescentados depois). */
+  extraFiles?: ImportFile[];
+  /** Sites estáticos: páginas a importar e página inicial. */
+  site?: StaticOptions;
 }
 
 const isRemote = (s: string) => /^https?:\/\//i.test(s);
@@ -104,8 +133,10 @@ export function collectImageUrls(data: GrapesProjectData): Map<string, Set<strin
     if (!c || typeof c !== 'object') return;
     const node = c as { type?: unknown; src?: unknown; attributes?: { src?: unknown }; components?: unknown };
     const by = typeof node.type === 'string' ? node.type : 'componente';
-    if (typeof node.src === 'string') add(node.src, by);
-    if (typeof node.attributes?.src === 'string') add(node.attributes.src, by);
+    // O src de mapas, iframes e vídeos não é uma imagem.
+    const media = by === 'map' || by === 'iframe' || by === 'video';
+    if (!media && typeof node.src === 'string') add(node.src, by);
+    if (!media && typeof node.attributes?.src === 'string') add(node.attributes.src, by);
     if (Array.isArray(node.components)) node.components.forEach(walk);
   };
   for (const p of data.pages) for (const f of p.frames) walk(f.component);
@@ -210,9 +241,25 @@ export function normalize(data: RawProjectData): GrapesProjectData {
   }
 }
 
-export async function analyzeImport(file: { name: string; type: string; size: number; text: () => Promise<string> }, deps: Dependencies): Promise<ImportAnalysis> {
-  const text = await file.text();
+export async function analyzeImport(file: ImportFile, deps: Dependencies, opts: ImportOptions = {}): Promise<ImportAnalysis> {
+  const bytes = file.arrayBuffer ? new Uint8Array(await file.arrayBuffer()) : null;
+  if (bytes && isZip(bytes)) {
+    let site: SiteFiles;
+    try {
+      site = siteFromZip(bytes);
+    } catch (e) {
+      throw new Error(e instanceof ZipError ? `ZIP de site estático: ${e.message}` : String(e), { cause: e });
+    }
+    if (opts.extraFiles?.length) site = mergeSites(site, await siteFromFiles(opts.extraFiles.map(binaryFile)));
+    return analyzeStaticSite(site, file, deps, opts.site);
+  }
+  const text = bytes ? new TextDecoder('utf-8').decode(bytes) : await file.text();
   const detection = detectFormat(text);
+  if (detection.format === 'zip') throw new Error('ZIP de site estático: não foi possível ler o arquivo como binário.');
+  if (detection.format === 'html') {
+    const site = await siteFromFiles([file, ...(opts.extraFiles ?? [])].map(binaryFile));
+    return analyzeStaticSite(site, file, deps, opts.site ?? { pages: [file.name] });
+  }
   let result: AdapterResult;
   let fontRequests: ElementorFontRequest[] = [];
   if (detection.format === 'grapesjs') result = convertGrapesJs(detection.json, file.name, file.size);
@@ -242,7 +289,97 @@ export async function analyzeImport(file: { name: string; type: string; size: nu
     blobs,
     original: { name: file.name, type: file.type || 'application/json', text },
     report: { ...result.report, fonts: [...result.report.fonts, ...fonts.entries], assets },
+    release: () => undefined,
   };
+}
+
+/** Ficheiro com leitura binária (os File do browser já a têm; nos testes pode vir só o texto). */
+function binaryFile(f: ImportFile): { name: string; size: number; webkitRelativePath?: string; arrayBuffer(): Promise<ArrayBuffer> } {
+  const own = f.arrayBuffer?.bind(f);
+  const read = own
+    ? () => own()
+    : async () => {
+        const bytes = new TextEncoder().encode(await f.text());
+        const copy = new Uint8Array(bytes.length);
+        copy.set(bytes);
+        return copy.buffer;
+      };
+  return { name: f.name, size: f.size, ...(f.webkitRelativePath ? { webkitRelativePath: f.webkitRelativePath } : {}), arrayBuffer: read };
+}
+
+/**
+ * Site estático (ZIP ou HTML com recursos): converte, passa pelo motor e verifica as imagens
+ * remotas. As imagens locais ficam com URLs temporários até à confirmação; `release` liberta-os.
+ */
+export async function analyzeStaticSite(site: SiteFiles, file: { name: string; size: number }, deps: Dependencies, opts: StaticOptions = {}): Promise<ImportAnalysis> {
+  const created: string[] = [];
+  const make = deps.objectUrl ?? ((blob: Blob) => URL.createObjectURL(blob));
+  const revoke = deps.revokeObjectUrl ?? ((url: string) => URL.revokeObjectURL(url));
+  const objectUrl = (blob: Blob) => {
+    const url = make(blob);
+    created.push(url);
+    return url;
+  };
+  const release = () => {
+    for (const url of created.splice(0)) revoke(url);
+  };
+  try {
+    const result = await convertStaticSite(site, file.name, file.size, { fetch: deps.fetch, objectUrl }, opts);
+    const projectData = normalize(result.projectData);
+    const blobs = new Map<string, Blob>();
+    const local: AssetEntry[] = result.report.assets.map((a) => {
+      const asset = result.localAssets.find((x) => x.url === a.url);
+      if (!asset) return a;
+      if (asset.blob.size > MAX_IMAGE_BYTES) return { ...a, status: 'rejeitada', reason: 'imagem com mais de 8 MB: não é guardada (aparece só nesta pré-visualização)' };
+      blobs.set(a.url, asset.blob);
+      return a;
+    });
+    const remote = new Map(result.remoteImages);
+    for (const [url, by] of collectImageUrls(projectData)) remote.set(url, new Set([...(remote.get(url) ?? []), ...by]));
+    const remoteAssets = await checkAssets(remote, deps, blobs);
+    return {
+      projectData,
+      suggestedName: result.suggestedName,
+      blobs,
+      original: { name: file.name, type: result.report.format === 'zip' ? 'application/zip' : 'text/html', text: result.manifest },
+      report: { ...result.report, assets: [...local, ...remoteAssets] },
+      release,
+      site: { files: site, candidates: result.candidates, pages: result.pages, home: result.home, localBlobs: new Map(result.localAssets.map((x) => [x.url, x.blob])) },
+    };
+  } catch (e) {
+    release();
+    throw e;
+  }
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => (typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Leitura falhou.')));
+    reader.onerror = () => reject(reader.error ?? new Error('Leitura falhou.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Documento para a pré-visualização isolada: o iframe tem origem opaca (sandbox sem
+ * allow-same-origin) e não consegue ler os URLs `blob:` da aplicação; leva as imagens locais
+ * embutidas. Só para mostrar: o documento da análise continua com os URLs temporários.
+ */
+export async function previewProjectData(analysis: ImportAnalysis): Promise<GrapesProjectData> {
+  const blobs = analysis.site?.localBlobs;
+  if (!blobs?.size) return analysis.projectData;
+  const map = new Map<string, string>();
+  for (const [url, blob] of blobs) map.set(url, await blobToDataUrl(blob));
+  return projectDataSchema.parse(replaceAll(analysis.projectData, map));
+}
+
+/** Volta a analisar um site estático com outra escolha de páginas ou com ficheiros acrescentados. */
+export async function reanalyzeSite(previous: ImportAnalysis, deps: Dependencies, opts: { site?: StaticOptions; extraFiles?: ImportFile[] }): Promise<ImportAnalysis> {
+  if (!previous.site) throw new Error('Só os sites estáticos podem ser analisados de novo.');
+  const files = opts.extraFiles?.length ? mergeSites(previous.site.files, await siteFromFiles(opts.extraFiles.map(binaryFile))) : previous.site.files;
+  const choice = opts.site ?? { pages: previous.site.pages, home: previous.site.home };
+  return analyzeStaticSite(files, { name: previous.report.fileName, size: previous.report.fileSize }, deps, choice);
 }
 
 /**
@@ -258,8 +395,11 @@ export async function completeImport(
   const { onProgress } = opts;
   const map = new Map<string, string>();
   const assets = analysis.report.assets.map((a) => ({ ...a }));
+  // Ficheiros locais de um site estático recusados (ex.: mais de 8 MB): o URL temporário deixaria
+  // de funcionar; volta o caminho que tinham no arquivo, e o relatório já os indica.
+  for (const a of assets) if (a.local && a.status === 'rejeitada' && a.url.startsWith('blob:')) map.set(a.url, a.local);
   if (!opts.copyImages) {
-    for (const a of assets.filter((x) => x.status === 'disponivel')) {
+    for (const a of assets.filter((x) => x.status === 'disponivel' && !x.local)) {
       a.status = 'externa';
       a.reason = 'não copiada: a autorização de uso não foi confirmada; fica o endereço original';
     }
@@ -270,14 +410,22 @@ export async function completeImport(
     const blob = analysis.blobs.get(a.url);
     try {
       if (!blob) throw new Error('imagem não lida na análise');
-      const name = decodeURIComponent(a.url.split('/').pop()?.split('?')[0] ?? 'imagem');
+      const name = a.local ? baseName(a.local) : decodeURIComponent(a.url.split('/').pop()?.split('?')[0] ?? 'imagem');
       const uploaded = await store.upload(new File([blob], name, { type: blob.type }));
       map.set(a.url, uploaded.stored);
       a.status = 'copiada';
       a.stored = uploaded.stored;
     } catch (e) {
-      a.status = 'externa';
-      a.reason = `falhou a cópia (${e instanceof Error ? e.message : String(e)}); fica o endereço original`;
+      const why = e instanceof Error ? e.message : String(e);
+      if (a.local) {
+        // Sem cópia, o URL temporário deixaria de funcionar: fica o caminho do arquivo, assinalado.
+        map.set(a.url, a.local);
+        a.status = 'em-falta';
+        a.reason = `falhou a cópia (${why}); a imagem não ficou guardada`;
+      } else {
+        a.status = 'externa';
+        a.reason = `falhou a cópia (${why}); fica o endereço original`;
+      }
     }
     done += 1;
     onProgress?.(done, todo.length);

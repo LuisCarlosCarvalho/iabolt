@@ -125,6 +125,13 @@ npm run test:server
 npm run test:e2e:server
 ```
 
+## Atualização de 01/10/2026 · Importação de sites estáticos (ZIP e HTML/CSS) (não publicado)
+
+- Implementada e testada localmente (modo local): ver `docs/20-importacao-sites-estaticos.md`.
+- Sem migrações nem alterações remotas. Sem commit, push ou deploy.
+- Por validar no servidor: cópia das imagens e fundos do ZIP para o Storage e referências permanentes (F5, reabrir, template, cópia).
+- Correções pendentes: duplicar elementos sem perder regras da folha importada; aviso quando `!important` impede uma edição; barra contextual a tapar o botão do menu (ver `docs/20`).
+
 ## Atualização de 29/09/2026 · painel esquerdo por ferramentas (não publicado)
 
 Trabalho **ainda sem commit** no ramo `fase-1-primeira-versao` (a produção continua em `c50ed79`).

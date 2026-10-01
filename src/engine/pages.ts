@@ -1,5 +1,7 @@
 import type { Component, Editor, Page } from 'grapesjs';
 import { cloneScopedRules, idMapOf, remapReferences } from './cloneRules';
+import { STYLESHEET_TYPE } from './boltTypes';
+import { remapCssIds } from './cssText';
 import { ensureStableIdsDeep } from './identity';
 
 /**
@@ -159,10 +161,23 @@ export function duplicatePage(editor: Editor, id: string): Page {
     const c = clones[i];
     if (c) idMapOf(o, c, ids);
   });
+  if (!page) throw new Error('Não foi possível duplicar a página.');
+  // Id do corpo (sites importados: ex. «page-top», alvo do «voltar ao topo»): a cópia tem o seu.
+  const bodyId = source.getMainComponent().getAttributes().id;
+  if (typeof bodyId === 'string' && bodyId) {
+    const taken = new Set(pages(editor).map((p) => p.getMainComponent().getAttributes().id));
+    let next = `${bodyId}-2`;
+    for (let n = 3; taken.has(next); n += 1) next = `${bodyId}-${n}`;
+    page.getMainComponent().addAttributes({ id: next });
+    ids.set(bodyId, next);
+  }
   cloneScopedRules(editor, ids);
   // Referências internas (#âncoras, for, ARIA) passam aos ids da cópia; as externas mantêm-se.
   clones.forEach((c) => remapReferences(c, ids));
-  if (!page) throw new Error('Não foi possível duplicar a página.');
+  // Folha literal de um site importado: os seletores com ids passam aos da cópia.
+  for (const c of clones) {
+    if (c.get('type') === STYLESHEET_TYPE) c.set('content', remapCssIds(String(c.get('content') ?? ''), ids));
+  }
   copyBodyClasses(source, page);
   return finish(editor, page);
 }

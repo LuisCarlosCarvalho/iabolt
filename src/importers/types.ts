@@ -26,6 +26,28 @@ export interface AssetEntry {
   reason?: string;
   /** Onde aparece (tipo de origem), para o relatório. */
   usedBy: string[];
+  /** Caminho no arquivo importado (sites estáticos): é guardada sempre, porque não há endereço original. */
+  local?: string;
+}
+
+/** Ficheiro referido por um site estático que não está no arquivo (ou que não pode ser usado). */
+export interface MissingFile {
+  /** Caminho resolvido no site (ou a referência, se sair da raiz). */
+  path: string;
+  /** Referência tal como está escrita. */
+  ref: string;
+  /** Ficheiros que a referem. */
+  from: string[];
+  kind: 'css' | 'imagem' | 'fonte' | 'script' | 'recurso';
+  reason?: string;
+}
+
+/** Página importada de um site estático. */
+export interface ImportedPage {
+  path: string;
+  slug: string;
+  title: string;
+  home: boolean;
 }
 
 export interface FontEntry {
@@ -49,6 +71,10 @@ export interface ImportReport {
   /** Conteúdo ativo removido por segurança (scripts, manipuladores de eventos, URLs javascript:). */
   removed: string[];
   totals: Record<ItemStatus, number>;
+  /** Sites estáticos: ficheiros referidos que faltam (o utilizador pode acrescentá-los). */
+  missingFiles?: MissingFile[];
+  /** Sites estáticos: páginas importadas. */
+  pages?: ImportedPage[];
 }
 
 /**

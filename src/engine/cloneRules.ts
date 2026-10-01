@@ -1,4 +1,7 @@
 import type { Component, CssRule, Editor } from 'grapesjs';
+import { remapSelectorIds } from './cssText';
+
+const SELECTOR_REF = ['data-bolt-toggle', 'data-bs-target', 'data-target'];
 
 /**
  * Ao clonar, o motor copia as regras cujo seletor é exatamente `#id` do componente (com
@@ -89,6 +92,13 @@ export function remapReferences(root: Component, ids: Map<string, string>): numb
       const tokens = v.trim().split(/\s+/);
       const mapped = tokens.map((t) => ids.get(t) ?? t);
       if (mapped.some((t, i) => t !== tokens[i])) patch[name] = mapped.join(' ');
+    }
+    // Atributos com seletores (comportamentos de sites importados: menu lateral, colapsos).
+    for (const name of SELECTOR_REF) {
+      const v = attrs[name];
+      if (typeof v !== 'string' || !v) continue;
+      const next = remapSelectorIds(v, ids);
+      if (next !== v) patch[name] = next;
     }
     if (Object.keys(patch).length) {
       c.addAttributes(patch);

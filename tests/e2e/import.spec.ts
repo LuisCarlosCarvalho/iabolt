@@ -270,8 +270,8 @@ test('guardar de novo sobre um template da equipa cria uma nova versão sem alte
 
 test('formato não suportado e ficheiro inválido dão erro claro sem criar projeto', async ({ page }) => {
   await page.goto('/importar');
-  await page.getByTestId('import-file').setInputFiles({ name: 'pagina.html', mimeType: 'text/html', buffer: Buffer.from('<html><body><h1>x</h1></body></html>') });
-  await expect(page.getByRole('alert')).toContainText('Ainda não é suportado');
+  await page.getByTestId('import-file').setInputFiles({ name: 'site.zip', mimeType: 'application/zip', buffer: Buffer.from('PK\u0003\u0004 truncado') });
+  await expect(page.getByRole('alert')).toContainText('ZIP de site estático: O arquivo ZIP está incompleto ou danificado');
   await page.getByTestId('import-file').setInputFiles({ name: 'x.json', mimeType: 'application/json', buffer: Buffer.from('{"a":1}') });
   await expect(page.getByRole('alert')).toContainText('Formato não reconhecido');
   await page.goto('/');

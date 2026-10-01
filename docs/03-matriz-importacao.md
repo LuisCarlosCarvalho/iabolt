@@ -7,9 +7,9 @@ Todos os formatos passam pelo mesmo pipeline: receber → identificar → valida
 | JSON Bolt IA | `boltSchemaVersion` | validar + migrar versões conhecidas + ids/permissões novos | 3 | pendente |
 | JSON GrapesJS Core | `pages[].frames[].component` | validar tipos contra os registados | 3 | implementado e testado (mesmo adaptador do Studio) |
 | JSON GrapesJS Studio (`.grapesjs`) | como acima + `custom.projectType`, `custom.plugins`, tipos Studio | mapear os tipos Studio para tipos Bolt; os não suportados ficam preservados e assinalados | 3 | implementado e testado com a amostra (`docs/08`) |
-| HTML/CSS colado | MIME/parse DOM | parser HTML/CSS real (nunca regex) | 3 | pendente |
-| ZIP estático | manifesto com `.html` | resolver caminhos, `url()`, `srcset`, fontes, várias páginas | 3 | pendente |
-| ZIP código-fonte (package.json, .php, .pug…) | manifesto | **diagnóstico apenas**; pedir exportação estática | 3 | pendente |
+| HTML/CSS (ficheiro + recursos) | conteúdo começa por etiqueta | DOMParser + postcss; recursos indicados ou em falta (lista exata) | 3 | implementado (docs/20) |
+| ZIP estático | assinatura PK + `.html` | resolver caminhos, `url()`, `srcset`, fontes, várias páginas | 3 | implementado (docs/20); amostra Stylish Portfolio |
+| ZIP código-fonte (package.json, .php, .pug…) | manifesto | **diagnóstico apenas**; pedir exportação estática | 3 | nota no relatório; só HTML/CSS já gerados são importados |
 | Elementor (`content`, `version`, `type`) | chaves de topo | adaptador por widget/versão | 3 | implementado para containers e para os widgets da amostra (heading, text-editor, image, image-box, button, icon-list, image-carousel, nested-accordion, html só com CSS); outros widgets ficam «não suportado» |
 | JSON desconhecido | nenhuma regra | diagnóstico; nunca «projeto válido» | 3 | pendente |
 

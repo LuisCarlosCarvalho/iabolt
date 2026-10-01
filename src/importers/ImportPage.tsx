@@ -4,7 +4,8 @@ import { Link, navigate, projectPath } from '../app/router';
 import { persistenceLabel, useServices } from '../app/services';
 import { Button, errorMessage, IconButton, Spinner } from '../app/ui';
 import { previewDocument } from '../engine/runtime';
-import { analyzeImport, browserDependencies, completeImport, FORMATS, unresolvedAssets, type ImportAnalysis } from './pipeline';
+import type { GrapesProjectData } from '../contract/boltDocument';
+import { analyzeImport, browserDependencies, completeImport, FORMATS, previewProjectData, reanalyzeSite, unresolvedAssets, type ImportAnalysis } from './pipeline';
 import type { AssetStatus, ImportReport, ItemStatus } from './types';
 
 /**
@@ -38,15 +39,39 @@ const ASSET_LABELS: Record<AssetStatus, string> = {
 const PREVIEW_WIDTHS = { desktop: 1280, tablet: 820, mobile: 390 } as const;
 type Device = keyof typeof PREVIEW_WIDTHS;
 
+/**
+ * Ficheiro principal de uma escolha com vários: o ZIP, senão a primeira página HTML. Os outros
+ * são os recursos associados (CSS, imagens, fontes) de um HTML avulso.
+ */
+function mainFile(files: File[]): { main: File; extra: File[] } | null {
+  const main = files.find((f) => /\.zip$/i.test(f.name) || f.type.includes('zip')) ?? files.find((f) => /\.html?$/i.test(f.name)) ?? files[0];
+  return main ? { main, extra: files.filter((f) => f !== main) } : null;
+}
+
 export function ImportPage() {
   const { mode } = useServices();
   const [step, setStep] = useState<Step>({ name: 'choose' });
 
-  const analyze = async (file: File) => {
-    setStep({ name: 'analyzing', fileName: file.name });
+  // URLs temporários da pré-visualização: libertados ao cancelar, ao trocar de análise e ao sair.
+  const current = step.name === 'review' || step.name === 'importing' ? step.analysis : null;
+  useEffect(() => () => current?.release(), [current]);
+
+  const analyze = async (files: File[]) => {
+    const pick = mainFile(files);
+    if (!pick) return;
+    setStep({ name: 'analyzing', fileName: pick.main.name });
     try {
-      const analysis = await analyzeImport(file, browserDependencies());
+      const analysis = await analyzeImport(pick.main, browserDependencies(), { extraFiles: pick.extra });
       setStep({ name: 'review', analysis });
+    } catch (e) {
+      setStep({ name: 'choose', error: errorMessage(e) });
+    }
+  };
+
+  const reanalyze = async (previous: ImportAnalysis, opts: Parameters<typeof reanalyzeSite>[2]) => {
+    setStep({ name: 'analyzing', fileName: previous.report.fileName });
+    try {
+      setStep({ name: 'review', analysis: await reanalyzeSite(previous, browserDependencies(), opts) });
     } catch (e) {
       setStep({ name: 'choose', error: errorMessage(e) });
     }
@@ -63,7 +88,7 @@ export function ImportPage() {
           </p>
         </div>
       </div>
-      {step.name === 'choose' && <ChooseFile error={step.error} onFile={(f) => void analyze(f)} />}
+      {step.name === 'choose' && <ChooseFile error={step.error} onFiles={(f) => void analyze(f)} />}
       {step.name === 'analyzing' && (
         <div className="state-panel">
           <Spinner label={`A analisar ${step.fileName}… (imagens e fontes incluídas)`} />
@@ -74,6 +99,7 @@ export function ImportPage() {
           analysis={step.analysis}
           busy={step.name === 'importing' ? step.progress : null}
           onCancel={() => setStep({ name: 'choose' })}
+          onReanalyze={(opts) => void reanalyze(step.analysis, opts)}
           onProgress={(progress) => setStep({ name: 'importing', analysis: step.analysis, progress })}
           onError={(error) => setStep({ name: 'choose', error })}
         />
@@ -82,14 +108,14 @@ export function ImportPage() {
   );
 }
 
-function ChooseFile({ error, onFile }: { error: string | undefined; onFile: (f: File) => void }) {
+function ChooseFile({ error, onFiles }: { error: string | undefined; onFiles: (f: File[]) => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const drop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
-    const f = e.dataTransfer.files[0];
-    if (f) onFile(f);
+    const files = [...e.dataTransfer.files];
+    if (files.length) onFiles(files);
   };
   return (
     <>
@@ -105,7 +131,7 @@ function ChooseFile({ error, onFile }: { error: string | undefined; onFile: (f: 
       >
         <FileUp aria-hidden="true" />
         <p>
-          <strong>Arraste o ficheiro para aqui</strong> ou
+          <strong>Arraste o ficheiro para aqui</strong> (ou a página HTML com o CSS e as imagens) ou
         </p>
         <Button variant="primary" onClick={() => input.current?.click()}>
           Escolher ficheiro
@@ -113,12 +139,13 @@ function ChooseFile({ error, onFile }: { error: string | undefined; onFile: (f: 
         <input
           ref={input}
           type="file"
+          multiple
           hidden
           data-testid="import-file"
           onChange={(e) => {
-            const f = e.target.files?.[0];
+            const files = [...(e.target.files ?? [])];
             e.target.value = '';
-            if (f) onFile(f);
+            if (files.length) onFiles(files);
           }}
         />
       </div>
@@ -139,7 +166,10 @@ function ChooseFile({ error, onFile }: { error: string | undefined; onFile: (f: 
           </li>
         ))}
       </ul>
-      <p className="hint">Scripts e manipuladores de eventos do ficheiro nunca são executados: são removidos na importação e indicados no relatório.</p>
+      <p className="hint">
+        Scripts e manipuladores de eventos do ficheiro nunca são executados: são removidos na importação e indicados no relatório. Nos sites estáticos, os
+        comportamentos reconhecidos (menu que abre e fecha, botão «voltar ao topo», colapsos do Bootstrap) passam para o runtime do Bolt IA.
+      </p>
     </>
   );
 }
@@ -148,12 +178,14 @@ function Review({
   analysis,
   busy,
   onCancel,
+  onReanalyze,
   onProgress,
   onError,
 }: {
   analysis: ImportAnalysis;
   busy: string | null;
   onCancel: () => void;
+  onReanalyze: (opts: Parameters<typeof reanalyzeSite>[2]) => void;
   onProgress: (text: string) => void;
   onError: (error: string) => void;
 }) {
@@ -164,15 +196,31 @@ function Review({
   const [acceptPartial, setAcceptPartial] = useState(false);
   const [rights, setRights] = useState(false);
   const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
-  const doc = useMemo(() => previewDocument(analysis.projectData, { interactive: true, scroll: true }), [analysis]);
+  // Sites estáticos: a pré-visualização recebe as imagens locais embutidas (ver previewProjectData).
+  const [shown, setShown] = useState<GrapesProjectData | null>(analysis.site ? null : analysis.projectData);
+  useEffect(() => {
+    if (!analysis.site) return;
+    let alive = true;
+    void previewProjectData(analysis).then((data) => {
+      if (alive) setShown(data);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [analysis]);
+  const doc = useMemo(() => (shown ? previewDocument(shown, { interactive: true, scroll: true }) : ''), [shown]);
   const unresolved = unresolvedAssets(report);
-  const copiable = report.assets.filter((a) => a.status === 'disponivel');
-  const partial = unresolved.length > 0 || report.totals.parcial > 0 || report.totals['nao-suportado'] > 0;
+  // Só as imagens remotas pedem autorização: as locais vêm no próprio ficheiro do utilizador.
+  const copiable = report.assets.filter((a) => a.status === 'disponivel' && !a.local);
+  const local = report.assets.filter((a) => a.status === 'disponivel' && a.local);
+  const missingFiles = report.missingFiles ?? [];
+  const partial = unresolved.length > 0 || missingFiles.length > 0 || report.totals.parcial > 0 || report.totals['nao-suportado'] > 0;
 
   const confirm = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      onProgress(copiable.length && rights ? `A copiar imagens (0/${copiable.length})…` : 'A criar o projeto…');
+      const toCopy = local.length + (rights ? copiable.length : 0);
+      onProgress(toCopy ? `A copiar imagens (0/${toCopy})…` : 'A criar o projeto…');
       const done = await completeImport(analysis, assets, {
         copyImages: rights,
         onProgress: (n, total) => onProgress(`A copiar imagens (${n}/${total})…`),
@@ -207,6 +255,8 @@ function Review({
             </li>
           ))}
         </ul>
+        {analysis.site && <SitePages analysis={analysis} disabled={busy !== null} onApply={(site) => onReanalyze({ site })} />}
+        {missingFiles.length > 0 && <MissingFiles report={report} disabled={busy !== null} onAdd={(extraFiles) => onReanalyze({ extraFiles })} />}
         <ReportDetails report={report} />
       </section>
 
@@ -216,8 +266,11 @@ function Review({
           <IconButton label="Tablet" aria-pressed={device === 'tablet'} onClick={() => setDevice('tablet')}><Tablet /></IconButton>
           <IconButton label="Telemóvel" aria-pressed={device === 'mobile'} onClick={() => setDevice('mobile')}><Smartphone /></IconButton>
         </div>
-        <ScaledFrame width={PREVIEW_WIDTHS[device]} doc={doc} />
-        <p className="hint">Pré-visualização isolada: só corre o runtime do Bolt IA (menu e carrossel). Imagens em falta aparecem assinaladas a vermelho.</p>
+        {doc ? <ScaledFrame width={PREVIEW_WIDTHS[device]} doc={doc} /> : <Spinner label="A preparar a pré-visualização…" />}
+        <p className="hint">
+          Pré-visualização isolada: só corre o runtime do Bolt IA (menus, carrossel, «voltar ao topo»). Imagens em falta aparecem assinaladas a vermelho.
+          {local.length > 0 && ` As ${local.length} imagem(ns) do arquivo são guardadas ${mode === 'server' ? 'no armazenamento do workspace' : 'no projeto'} ao importar.`}
+        </p>
 
         <label className="field">
           <span>Nome do projeto</span>
@@ -239,6 +292,7 @@ function Review({
             <span>
               Compreendo que a importação é parcial
               {unresolved.length > 0 ? ` (${unresolved.length} imagem(ns) em falta ou fora do armazenamento)` : ''}
+              {missingFiles.length > 0 ? ` (${missingFiles.length} ficheiro(s) referido(s) em falta)` : ''}
               {report.totals.parcial + report.totals['nao-suportado'] > 0 ? ` e que há elementos convertidos parcialmente ou não suportados` : ''}. O ficheiro original fica
               guardado para recuperação.
             </span>
@@ -257,6 +311,94 @@ function Review({
         </p>
       </section>
     </form>
+  );
+}
+
+/** Páginas do site: quais importar e qual é a inicial (nova análise ao aplicar). */
+function SitePages({ analysis, disabled, onApply }: { analysis: ImportAnalysis; disabled: boolean; onApply: (site: { pages: string[]; home: string }) => void }) {
+  const site = analysis.site;
+  const [pages, setPages] = useState<string[]>(site?.pages ?? []);
+  const [home, setHome] = useState(site?.home ?? '');
+  if (!site) return null;
+  const changed = home !== site.home || pages.length !== site.pages.length || pages.some((p) => !site.pages.includes(p));
+  const toggle = (path: string, on: boolean) => {
+    const next = on ? [...pages, path] : pages.filter((p) => p !== path);
+    setPages(next);
+    if (!next.includes(home)) setHome(next[0] ?? '');
+  };
+  return (
+    <details className="site-pages" open data-testid="import-pages">
+      <summary>
+        Páginas ({site.pages.length} de {site.candidates.length} ficheiros HTML)
+      </summary>
+      <table className="report-table">
+        <thead>
+          <tr>
+            <th>Importar</th>
+            <th>Inicial</th>
+            <th>Ficheiro</th>
+          </tr>
+        </thead>
+        <tbody>
+          {site.candidates.map((c) => (
+            <tr key={c.path}>
+              <td>
+                <input type="checkbox" aria-label={`Importar ${c.path}`} checked={pages.includes(c.path)} disabled={disabled} onChange={(e) => toggle(c.path, e.target.checked)} />
+              </td>
+              <td>
+                <input type="radio" name="home" aria-label={`${c.path} como página inicial`} checked={home === c.path} disabled={disabled || !pages.includes(c.path)} onChange={() => setHome(c.path)} />
+              </td>
+              <td>
+                <code>{c.path}</code> · {c.title}
+                {c.auxiliary && <div className="hint">Não é página por omissão: {c.auxiliary}</div>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {changed && (
+        <Button disabled={disabled || pages.length === 0} onClick={() => onApply({ pages, home })} data-testid="import-pages-apply">
+          Aplicar escolha e analisar de novo
+        </Button>
+      )}
+    </details>
+  );
+}
+
+/** Ficheiros referidos que não estão no arquivo: lista exata e opção de os acrescentar. */
+function MissingFiles({ report, disabled, onAdd }: { report: ImportReport; disabled: boolean; onAdd: (files: File[]) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const missing = report.missingFiles ?? [];
+  return (
+    <div className="notice import-missing" data-testid="import-missing">
+      <AlertTriangle aria-hidden="true" />
+      <div>
+        <strong>{missing.length} ficheiro(s) referido(s) em falta.</strong> Nada é inventado nem substituído: acrescente-os ou importe sem eles.
+        <ul className="asset-list">
+          {missing.map((m) => (
+            <li key={m.path}>
+              <code>{m.path}</code> ({m.kind}) · referido em {m.from.join(', ')}
+              {m.reason && <div className="hint">{m.reason}</div>}
+            </li>
+          ))}
+        </ul>
+        <Button disabled={disabled} onClick={() => input.current?.click()}>
+          Acrescentar ficheiros…
+        </Button>
+        <input
+          ref={input}
+          type="file"
+          multiple
+          hidden
+          data-testid="import-missing-files"
+          onChange={(e) => {
+            const files = [...(e.target.files ?? [])];
+            e.target.value = '';
+            if (files.length) onAdd(files);
+          }}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -300,7 +442,8 @@ export function ReportDetails({ report }: { report: ImportReport }) {
         <ul className="asset-list" data-testid="import-assets">
           {report.assets.map((a) => (
             <li key={a.url}>
-              <span className={`status status-asset-${a.status}`}>{ASSET_LABELS[a.status]}</span> <code title={a.url}>{shortUrl(a.url)}</code>
+              <span className={`status status-asset-${a.status}`}>{a.local && a.status === 'disponivel' ? 'Guardada ao importar' : ASSET_LABELS[a.status]}</span>{' '}
+              <code title={a.local ?? a.url}>{a.local ?? shortUrl(a.url)}</code>
               {a.reason && <div className="hint">{a.reason}</div>}
             </li>
           ))}
@@ -318,6 +461,19 @@ export function ReportDetails({ report }: { report: ImportReport }) {
           ))}
         </ul>
       </details>
+      {report.pages && report.pages.length > 0 && (
+        <details>
+          <summary>Páginas criadas ({report.pages.length})</summary>
+          <ul className="notes">
+            {report.pages.map((p) => (
+              <li key={p.path}>
+                {p.title} · <code>/{p.slug}</code> ← <code>{p.path}</code>
+                {p.home ? ' (inicial)' : ''}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {report.notes.length > 0 && (
         <details open>
           <summary>Notas e limitações ({report.notes.length})</summary>
