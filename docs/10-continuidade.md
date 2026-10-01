@@ -125,6 +125,38 @@ npm run test:server
 npm run test:e2e:server
 ```
 
+## Atualização de 01/10/2026 · Seleção sincronizada entre o canvas e «Páginas e camadas» (publicada)
+
+**Publicada no commit que contém esta secção** (, Vercel). Sem alterações no Supabase e sem chamadas de IA.
+
+**Causa do print.**
+- O GrapesJS importa um  que só tem um título e um botão (ex.: o «callout» do Stylish Portfolio) como componente de **texto**.
+- As camadas escondiam os filhos dos textos, por isso o título «Welcome to your next website!» não tinha linha e não podia ser destacado.
+- Faltava também deslocar a lista até à linha selecionada.
+
+**Correção** ():
+- A seleção é a do motor (fonte única) e a linha é a do componente real ().
+- Os filhos dos textos:
+  - a formatação (, , …) e o conteúdo de parágrafos, títulos e ligações continuam escondidos;
+  - um «texto» que é um contentor ( com títulos, parágrafos ou botões) mostra-os.
+- Uma seleção sem linha própria (ex.: um ) marca a linha que a contém (estilo próprio).
+- Só o caminho até à linha é aberto. Os ramos que o utilizador abriu ou fechou ficam como estavam (os detalhes SVG continuam fechados por omissão).
+- Deslocamento **só da lista de camadas**, com : nunca o canvas nem a página. Não há deslocamento se a linha já estiver visível, e o foco não muda.
+- A linha volta a ser revelada quando a seleção muda e quando se volta ao painel. Noutra ferramenta, o painel não abre sozinho.
+- Destaque com fundo, contorno e barra, nos tokens do tema (claro e escuro).
+
+**Testes:**
+- , com a página importada, cobre:
+  - o título do print;
+  - títulos com o mesmo nome;
+  - um elemento aninhado;
+  - uma imagem escolhida pela árvore;
+  - selecionar o pai, duplicar, eliminar e desfazer/refazer;
+  - outra ferramenta e regresso;
+  - a mudança de página.
+- O mesmo teste confirma que a revisão, o histórico e a gravação não mudam ao só selecionar, e que o canvas e a página da aplicação não se deslocam.
+-  exit 0 (214 testes); Playwright: 79 passaram, 3 ignorados (visuais).
+
 ## Atualização de 01/10/2026 · Publicação: importação ZIP, janela «Editar com IA», imagens e custos só para administradores
 
 **Publicado em 01/10/2026** (commit `ff9553e`; `master` avançado sem force push; os commits de documentação posteriores ficam só no ramo de trabalho até à próxima entrega, para não mostrar o aviso de versão nova aos separadores abertos sem necessidade).

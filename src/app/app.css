@@ -312,7 +312,11 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ui-primary); }
 .tree .tree { padding-left: 14px; }
 .tree-row { display: flex; align-items: center; gap: 4px; height: 30px; padding-right: 6px; border-radius: var(--ui-radius-sm); cursor: pointer; color: var(--ui-muted); position: relative; }
 .tree-row:hover { background: var(--ui-sidebar-accent); color: var(--ui-text); }
-.tree-row[aria-selected='true'] { background: var(--ui-primary-soft); color: var(--ui-text); box-shadow: inset 2px 0 0 var(--ui-primary); }
+/* Seleção: fundo + contorno + barra, com os tokens do tema (claro e escuro). */
+.tree-row[aria-selected='true'] { background: var(--ui-primary-soft); color: var(--ui-text); box-shadow: inset 0 0 0 1px var(--ui-primary-line), inset 3px 0 0 var(--ui-primary); }
+.tree-row[aria-selected='true'] .tree-label { color: var(--ui-text); font-weight: 600; }
+/* A seleção é um detalhe sem linha própria (ex.: formatação dentro de um título): a linha que o contém. */
+.tree-row.contains-selection { background: var(--ui-primary-soft); color: var(--ui-text); box-shadow: inset 0 0 0 1px var(--ui-primary-line); }
 .tree-row.drop-inside { outline: 2px dashed var(--ui-primary); outline-offset: -2px; }
 .tree-row.drop-before::before, .tree-row.drop-after::after { content: ''; position: absolute; left: 6px; right: 6px; height: 2px; background: var(--ui-primary); border-radius: 2px; }
 .tree-row.drop-before::before { top: -1px; }
