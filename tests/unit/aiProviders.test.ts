@@ -205,8 +205,27 @@ describe('[simulado] função ai-image (gerador falso)', () => {
     return d;
   };
 
+  it('valores financeiros só para administradores: utilizador comum recebe a imagem sem custo e «limite» sem orçamento', async () => {
+    const gen = async () => ({ mime: 'image/jpeg' as const, base64: 'QUJDREVGR0hJSktMTU5PUA==', tokens: null });
+    const user = deps(gen, { isAdmin: async () => false });
+    const r = await handleImage('Bearer ok', req(), user);
+    expect(r.status).toBe(200);
+    expect(JSON.stringify(r.body)).not.toMatch(/costUsd|estimated/);
+    // A contabilização no servidor é a mesma.
+    expect(user.settled[0]).toMatchObject({ status: 'done', confirmedCostUsd: 0.067 });
+    // Sem a dependência (por omissão), ninguém recebe valores.
+    expect(JSON.stringify((await handleImage('Bearer ok', req(), deps(gen))).body)).not.toMatch(/costUsd/);
+    // Limite mensal atingido: mensagem funcional para o utilizador; a do orçamento só para o administrador.
+    const full = { reserve: async () => ({ ok: false as const, reason: 'budget' as const }) };
+    const ru = await handleImage('Bearer ok', req(), deps(gen, { ...full, isAdmin: async () => false }));
+    expect(ru).toMatchObject({ status: 429, body: { error: 'Limite de utilização atingido.' } });
+    const ra = await handleImage('Bearer ok', req(), deps(gen, { ...full, isAdmin: async () => true }));
+    expect(ra).toMatchObject({ status: 429, body: { error: 'O orçamento mensal foi atingido.' } });
+  });
+
   it('reserva o teto por imagem (tipo imagem, fornecedor de imagens) e regista a tarifa como custo confirmado', async () => {
-    const d = deps(async () => ({ mime: 'image/jpeg', base64: 'QUJDREVGR0hJSktMTU5PUA==', tokens: null }));
+    // Administrador: recebe o custo.
+    const d = deps(async () => ({ mime: 'image/jpeg', base64: 'QUJDREVGR0hJSktMTU5PUA==', tokens: null }), { isAdmin: async () => true });
     const r = await handleImage('Bearer ok', req(), d);
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ mime: 'image/jpeg', model: 'gemini-3.1-flash-image', provider: 'google', costUsd: 0.067, estimated: false, simulated: false });

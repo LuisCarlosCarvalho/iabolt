@@ -1,5 +1,5 @@
 import type { Component, Editor } from 'grapesjs';
-import { AI_CONTRACT_VERSION, AiProposeRequest, type AiOperation } from '../../supabase/functions/_shared/ai/contract.ts';
+import { AI_CONTRACT_VERSION, AiProposeRequest, type AiOperation, type AiProposeResponse } from '../../supabase/functions/_shared/ai/contract.ts';
 import type { DeviceId } from '../engine/styles';
 import { applyOperations, describeOperations, documentVersion, EDITING_MESSAGE, imageSlots, isEditingText, validateForDocument, type ChangeLine } from './apply';
 import { buildScopeContext, planParts, resolveScope } from './context';
@@ -18,8 +18,18 @@ export type QuickEditResult =
   | { kind: 'nothing'; summary: string }
   | { kind: 'clarify'; question: string; summary: string }
   | { kind: 'needs-panel'; reason: string }
+  /** A proposta precisa de imagens: segue para o painel JÁ com a proposta (sem novo pedido). */
+  | { kind: 'needs-images'; handoff: AiHandoff; generate: boolean }
   | { kind: 'cancelled' }
   | { kind: 'error'; message: string; details?: string[] };
+
+/** Proposta passada da janela rápida para o painel completo (imagens a gerar ou a escolher). */
+export interface AiHandoff {
+  request: AiProposeRequest;
+  response: AiProposeResponse;
+  /** Abrir logo a confirmação «Gerar imagem». */
+  autoGenerate: boolean;
+}
 
 export interface QuickEditInput {
   editor: Editor;
@@ -29,6 +39,8 @@ export interface QuickEditInput {
   instruction: string;
   component: Component;
   signal: AbortSignal;
+  /** Há gerador de imagens disponível (o modelo pode propor imagens NOVAS). */
+  imageGeneration?: boolean;
   /** Só em desenvolvimento: os testes leem o pedido enviado. */
   onRequest?: (req: AiProposeRequest) => void;
 }
@@ -51,8 +63,8 @@ export async function runQuickEdit(input: QuickEditInput): Promise<QuickEditResu
     scope: scope.scope,
     device,
     instruction,
-    // Sem geração de imagens aqui: tem custo próprio e pede confirmação (fica para o painel).
-    imageGeneration: false,
+    // Com gerador disponível o modelo pode propor gerar; a geração em si é confirmada no painel.
+    imageGeneration: input.imageGeneration === true,
     context: part.context,
   });
   if (!parsed.success) return { kind: 'error', message: 'Não foi possível preparar o pedido. Nada foi enviado.' };
@@ -78,7 +90,11 @@ export async function runQuickEdit(input: QuickEditInput): Promise<QuickEditResu
   }
   const ops = proposal.operations;
   if (ops.length === 0) return { kind: 'nothing', summary: proposal.summary };
-  if (imageSlots(ops).length > 0) return { kind: 'needs-panel', reason: 'Esta alteração precisa de escolher ou carregar imagens.' };
+  const slots = imageSlots(ops);
+  if (slots.length > 0) {
+    const generate = slots.some((x) => x.source.kind === 'generate');
+    return { kind: 'needs-images', generate, handoff: { request, response, autoGenerate: generate } };
+  }
   const changes = describeOperations(editor, ops);
   try {
     applyOperations(editor, ops, new Map());

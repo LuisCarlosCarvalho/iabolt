@@ -33,6 +33,11 @@ Deno.serve(async (request: Request) => {
   const result = await handleImage(request.headers.get('authorization'), await request.text(), {
     forceDisabled: FORCE_DISABLED,
     now: () => Date.now(),
+    // Administrador da plataforma: o mesmo critério da função ai-admin (is_platform_admin).
+    async isAdmin(userId) {
+      const { data, error } = await service.rpc('is_platform_admin', { p_user_id: userId });
+      return !error && data === true;
+    },
     async getUser(header) {
       const token = header?.replace(/^Bearer\s+/i, '') ?? '';
       if (!token) return null;

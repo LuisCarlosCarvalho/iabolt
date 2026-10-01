@@ -26,7 +26,8 @@ export interface AiStatus {
   enabled: boolean;
   modelLabel: string | null;
   provider?: string | null;
-  image?: { enabled: boolean; label: string | null; priceUsd: number | null };
+  /** `priceUsd` só chega a administradores (NULL para os outros, também no servidor). */
+  image?: { enabled: boolean; label: string | null; priceUsd: number | null; provider?: string | null; model?: string | null };
   pricing?: { prices: { input: number; output: number; cacheRead: number; cacheWrite: number }; maxOutputTokens: number; overheadTokens: number; maxRetries: number; maxParts: number };
 }
 
@@ -36,6 +37,8 @@ const StatusRow = z.object({
   model_label: z.string().nullable().optional(),
   image_enabled: z.boolean().nullable().optional(),
   image_label: z.string().nullable().optional(),
+  image_provider: z.string().nullable().optional(),
+  image_model: z.string().nullable().optional(),
   image_price_usd: z.coerce.number().nullable().optional(),
   prices: z.object({ input: z.coerce.number(), output: z.coerce.number(), cacheRead: z.coerce.number(), cacheWrite: z.coerce.number() }).nullable().optional(),
   max_output_tokens: z.coerce.number().nullable().optional(),
@@ -57,7 +60,7 @@ export function parseStatus(raw: unknown): AiStatus {
     enabled: s.enabled,
     modelLabel: s.model_label ?? null,
     provider: s.provider ?? null,
-    image: { enabled: s.image_enabled === true, label: s.image_label ?? null, priceUsd: s.image_price_usd ?? null },
+    image: { enabled: s.image_enabled === true, label: s.image_label ?? null, priceUsd: s.image_price_usd ?? null, provider: s.image_provider ?? null, model: s.image_model ?? null },
     ...(pricing ? { pricing } : {}),
   };
 }
@@ -114,12 +117,27 @@ export class ServerAiAdminClient implements AiAdminClient {
   }
 }
 
+/**
+ * Modo local (sem servidor, sem segurança): papel e imagens SIMULADOS para testar a interface.
+ * `bolt-local-papel = utilizador` → utilizador comum; `bolt-local-imagens = desligadas` → geração
+ * de imagens não configurada. Não protege nada: a proteção real é a do servidor.
+ */
+export const LOCAL_ROLE_KEY = 'bolt-local-papel';
+export const LOCAL_IMAGES_KEY = 'bolt-local-imagens';
+function localSetting(key: string): string | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 export class LocalAiAdminClient implements AiAdminClient {
   readonly simulated = true;
   private readonly deps = createLocalAiAdmin();
 
   async isAdmin(): Promise<boolean> {
-    return true;
+    return localSetting(LOCAL_ROLE_KEY) !== 'utilizador';
   }
 
   async send(req: AdminRequest): Promise<AdminResult> {
@@ -129,6 +147,8 @@ export class LocalAiAdminClient implements AiAdminClient {
 
   /** O assistente local usa sempre o simulador (não depende destas configurações), também para imagens. */
   async status(): Promise<AiStatus> {
-    return { enabled: true, modelLabel: null, image: { enabled: true, label: 'Simulador de imagens', priceUsd: 0 } };
+    const admin = await this.isAdmin();
+    if (localSetting(LOCAL_IMAGES_KEY) === 'desligadas') return { enabled: true, modelLabel: null, image: { enabled: false, label: null, priceUsd: null, provider: null, model: null } };
+    return { enabled: true, modelLabel: null, image: { enabled: true, label: 'Simulador de imagens', priceUsd: admin ? 0 : null, provider: 'simulador', model: 'simulador' } };
   }
 }

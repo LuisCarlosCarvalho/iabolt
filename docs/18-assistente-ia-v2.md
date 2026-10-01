@@ -166,3 +166,62 @@ Não há compatibilidade genérica com «qualquer API». Para um fornecedor novo
 - **Não aplica** o que precisa de decisão: esclarecimento, imagens a escolher/carregar, pedido grande, proposta inválida ou documento alterado durante a espera. Diz «Nada foi alterado» e oferece «Continuar no assistente» (o painel abre com o mesmo texto).
 - **Estilos que não se veem:** depois de aplicar (na janela e no painel), o canvas é verificado. Se uma regra do site prevalecer (ex.: `.text-muted` do Bootstrap com `!important`), aparece «Parte da alteração não se vê na página», com a regra e o valor visível, em vez de dar a alteração como feita.
 - **Testes (locais, simulador):** `tests/unit/aiQuickEdit.test.ts` (3), `tests/e2e/ai-shortcut.spec.ts` (2, reescrito: o botão passou a abrir a janela), `tests/e2e/import-static.spec.ts` (janela no site importado e aviso de `!important`). Sem chamadas pagas; o fornecedor real não foi testado com a janela.
+
+## Imagem de fundo pela janela rápida e valores financeiros só para administradores (01/10/2026, não publicado)
+
+### Causa do print («Esta alteração precisa de escolher ou carregar imagens»)
+
+1. **Janela rápida:** enviava sempre `imageGeneration: false`. O modelo era informado de que não podia gerar e propunha «escolher uma imagem»; a janela mandava escolher/carregar.
+2. **Configuração do servidor:** os únicos modelos de imagens suportados são os Gemini da Google (Gemini 3.1 Flash Image, 0,067 USD por imagem; Gemini 3 Pro Image, 0,134 USD). O OpenAI GPT-Image fica não suportado por falta de preço publicado. No servidor não há chave Google (`google | none` na verificação de 30/09), por isso a geração estava indisponível mesmo no painel.
+
+### Correção
+
+- A janela rápida envia `imageGeneration: true` quando há gerador. Uma proposta com imagens abre o painel completo **com a mesma proposta**, sem novo pedido ao assistente, e com a confirmação «Gerar imagem» já aberta (descrição proposta pelo modelo, editável).
+- Percurso: confirmar → imagem gerada como proposta → antes/depois → aplicar ao fundo (regra própria `#id`; textos, botões e estrutura intactos) → um desfazer → guardar com referência permanente (Storage `bolt-asset:`; no modo local, dentro do documento).
+- Sem gerador configurado, a janela e o painel dizem a **causa**:
+  - ao administrador: o que configurar (fornecedor e modelo de imagens, chave Google, ativar), com «Abrir Configurações de IA»; o pedido fica guardado e reaparece ao reabrir a janela no mesmo elemento;
+  - ao utilizador comum: «não está disponível; contacte o administrador».
+  
+  Escolher uma imagem existente fica como opção separada e nunca como resposta a «gerar».
+- **Configurações de IA › Imagens:** mantém o fornecedor e o modelo próprios (independentes da edição) e a chave por fornecedor (guardar, substituir, remover, testar; cifrada no Vault, só o servidor a lê). Distingue «credencial reconhecida» de «geração validada». Passa a dizer explicitamente que credencial usa: a chave do fornecedor do passo 1, a mesma da edição quando o fornecedor é o mesmo. Não há uma segunda chave para o mesmo fornecedor, por desenho. Se a chave faltar ou tiver sido recusada, diz onde a pôr.
+
+### Valores financeiros
+
+Os custos, preços, reservas, orçamento e o consumo por pedido ficam visíveis **só para administradores** (`platform_admins`). Os limites, as reservas, o acerto e a auditoria continuam iguais para todos.
+
+| Onde | Antes | Agora |
+| --- | --- | --- |
+| `ai_status_v2()` | preços e preço por imagem para qualquer utilizador | `prices` e `image_price_usd` a NULL para quem não é administrador (mesma assinatura) |
+| tabela `ai_usage` | cada utilizador lia o próprio consumo (custos, reservas, preços) | só administradores |
+| `ai-propose` (resposta) | `usage` com `costUsd` | `usage` só para administradores |
+| `ai-image` (resposta) | `costUsd`/`estimated` | só para administradores (campos opcionais no contrato) |
+| limite mensal | «O orçamento mensal … foi atingido» | administrador: igual; outros: «Limite de utilização (do assistente) atingido.» |
+| interface (janela, painel, confirmação, imagem escolhida) | custos para todos | custos só para administradores; a confirmação antes de gerar mantém-se para todos |
+
+**Modo local** (sem servidor e sem segurança, só para testar a interface): `localStorage` `bolt-local-papel = utilizador` simula um utilizador comum; `bolt-local-imagens = desligadas` simula a geração não configurada.
+
+### Alterações remotas necessárias (NÃO executadas)
+
+1. **Migração** `20261002120000_ia_financeiro_so_admin.sql` (`db push`). Substitui `ai_status_v2()` com a mesma assinatura e troca a política de leitura de `ai_usage`.
+2. **Republicar** as funções `ai-propose` e `ai-image` (`ai-admin` não muda).
+3. **Ordem obrigatória:** primeiro o **frontend novo** (Vercel), depois a migração e as funções.
+   - O frontend em produção (`7a98efe`) exige `costUsd` na resposta de `ai-image`.
+   - Também só ativa as imagens quando recebe o preço.
+   - Na ordem inversa, utilizadores comuns ficariam sem geração de imagens no frontend antigo. O frontend novo funciona com o servidor antigo e com o novo.
+
+### Testes (locais; simulador; sem chamadas pagas)
+
+| Ficheiro | O que cobre |
+| --- | --- |
+| `tests/unit/aiQuickEdit.test.ts` | pedido do print com gerador → gerar; sem gerador → escolher; nada é aplicado |
+| `tests/unit/aiAssistant.test.ts`, `tests/unit/aiProviders.test.ts` | resposta sem `usage`/`costUsd` para o utilizador comum, com a mesma contabilização; mensagem de limite sem orçamento |
+| `tests/db/ai_usage.test.ts`, `tests/db/ai_settings.test.ts` | PGlite com as migrações reais: o utilizador não lê `ai_usage`, o administrador lê; `ai_status_v2` só tem preços para o administrador |
+| `tests/e2e/ai-image-background.spec.ts` | pedido do print numa cópia do template importado (fundo vindo do CSS original); confirmação, pré-visualização, aplicar, desfazer/refazer, guardar e F5; utilizador comum sem valores; geração não configurada (administrador e utilizador) |
+
+**A geração real NÃO está validada.** Só o simulador foi usado.
+
+### Teste real proposto (pago; precisa de autorização e configuração)
+
+1. Guardar a chave Google no passo 1.
+2. Escolher **Gemini 3.1 Flash Image** e ativar a geração.
+3. Gerar **uma** imagem pelo pedido do print. O custo estimado é de 0,067 USD por imagem (tarifa publicada), mais o pedido de edição, cuja reserva máxima o painel mostra ao administrador (cerca de 0,12 USD com o Claude Sonnet 5.5, segundo o print). O custo real costuma ser menor.

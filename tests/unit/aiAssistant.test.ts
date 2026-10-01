@@ -635,11 +635,19 @@ describe('[simulado] Assistente IA · função ai-propose (fornecedor falso, sem
     expect((await handlePropose('Bearer ok', raw, timeout)).status).toBe(502);
     expect(settlement(timeout)).toMatchObject({ status: 'failed', attempts: 1, unknownAttempts: 1, confirmedCostUsd: 0, unknownCostUsd: ceiling });
 
-    const noUsage = baseDeps(providerOf(ok({ summary: 'x', operations: [{ op: 'setText', id: scopeId(req), text: 'Curto' }] }, { usageKnown: false, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } })));
+    // Administrador: recebe o consumo (estimado, porque o fornecedor não o indicou).
+    const noUsage = baseDeps(providerOf(ok({ summary: 'x', operations: [{ op: 'setText', id: scopeId(req), text: 'Curto' }] }, { usageKnown: false, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } })), { isAdmin: async () => true });
     const r = await handlePropose('Bearer ok', raw, noUsage);
     expect(r.status).toBe(200);
     expect(JSON.stringify(r.body)).toContain('"estimated":true');
     expect(settlement(noUsage)).toMatchObject({ status: 'done', unknownAttempts: 1, unknownCostUsd: ceiling });
+    // Utilizador comum: a mesma contabilização no servidor, mas a resposta não leva valores.
+    const asUser = baseDeps(providerOf(ok({ summary: 'x', operations: [{ op: 'setText', id: scopeId(req), text: 'Curto' }] })), { isAdmin: async () => false });
+    const ru = await handlePropose('Bearer ok', raw, asUser);
+    expect(ru.status).toBe(200);
+    expect(JSON.stringify(ru.body)).not.toMatch(/usage|costUsd|Usd|estimated/);
+    expect(settlement(asUser)).toMatchObject({ status: 'done' });
+    expect(settlement(asUser).confirmedCostUsd).toBeGreaterThan(0);
 
     const crash = baseDeps(providerOf(new Error('falha interna')));
     await expect(handlePropose('Bearer ok', raw, crash)).rejects.toThrow('falha interna');

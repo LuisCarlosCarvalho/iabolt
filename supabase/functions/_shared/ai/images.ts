@@ -26,9 +26,10 @@ export const AiImageResponse = z
     base64: z.string().min(16),
     model: z.string().max(80),
     provider: z.string().max(40),
-    costUsd: z.number().nonnegative(),
-    /** O custo é o teto (o fornecedor não indicou o consumo). */
-    estimated: z.boolean(),
+    /** Só para administradores da plataforma (os outros utilizadores não recebem valores). */
+    costUsd: z.number().nonnegative().optional(),
+    /** O custo é o teto (o fornecedor não indicou o consumo). Só para administradores. */
+    estimated: z.boolean().optional(),
     simulated: z.boolean(),
   })
   .strict();

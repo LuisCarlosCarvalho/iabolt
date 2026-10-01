@@ -13,6 +13,7 @@ import { SUPABASE_STUB } from './supabaseStub';
  */
 const USER_A = '00000000-0000-4000-8000-0000000000a1';
 const USER_B = '00000000-0000-4000-8000-0000000000b1';
+const ADMIN = '00000000-0000-4000-8000-0000000000ad';
 const MODEL = 'claude-sonnet-5-5';
 const PRICES = JSON.stringify({ input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 });
 let db: PGlite;
@@ -46,7 +47,8 @@ beforeAll(async () => {
   await db.exec(SUPABASE_STUB);
   const dir = join(process.cwd(), 'supabase', 'migrations');
   for (const file of readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) await db.exec(readFileSync(join(dir, file), 'utf8'));
-  await db.query(`insert into auth.users (id, email) values ($1, 'a@exemplo.pt'), ($2, 'b@exemplo.pt')`, [USER_A, USER_B]);
+  await db.query(`insert into auth.users (id, email) values ($1, 'a@exemplo.pt'), ($2, 'b@exemplo.pt'), ($3, 'admin@exemplo.pt')`, [USER_A, USER_B, ADMIN]);
+  await db.query(`insert into public.platform_admins (user_id, note) values ($1, 'administrador de teste')`, [ADMIN]);
   const ws = await db.query<{ workspace_id: string }>(`select workspace_id from public.workspace_members where user_id = $1`, [USER_A]);
   wsA = ws.rows[0]?.workspace_id ?? '';
 }, 60_000);
@@ -148,7 +150,7 @@ describe('Assistente IA · reserva, limites e orçamento (PGlite)', () => {
     await db.query(`update public.ai_settings set image_enabled = false`);
   });
 
-  it('utilizadores não chamam as funções de consumo nem escrevem na tabela; só leem o próprio consumo', async () => {
+  it('utilizadores não chamam as funções de consumo nem escrevem na tabela; o consumo (custos, reservas, preços) só é legível por administradores', async () => {
     const r = await reserve(USER_A, wsA, 0.001);
     await settle(r.reservation_id ?? '', 0.001);
     const as = async (user: string, sql: string) => {
@@ -166,7 +168,11 @@ describe('Assistente IA · reserva, limites e orçamento (PGlite)', () => {
     await expect(as(USER_A, `select public.ai_release('${r.reservation_id ?? ''}')`)).rejects.toThrow(/permission denied/);
     await expect(as(USER_A, 'select public.ai_expire_stale(60)')).rejects.toThrow(/permission denied/);
     await expect(as(USER_A, `insert into public.ai_usage (request_id, user_id, workspace_id, reserved_usd) values ('${crypto.randomUUID()}', '${USER_A}', '${wsA}', 0)`)).rejects.toThrow(/permission denied/);
-    expect((await as(USER_A, 'select id from public.ai_usage')).rows).toHaveLength(1);
+    // Nem o próprio autor do pedido lê os valores do seu consumo; o administrador lê tudo.
+    expect((await as(USER_A, 'select id, cost_usd, reserved_usd, prices from public.ai_usage')).rows).toHaveLength(0);
     expect((await as(USER_B, 'select id from public.ai_usage')).rows).toHaveLength(0);
+    expect((await as(ADMIN, 'select id, cost_usd from public.ai_usage')).rows).toHaveLength(1);
+    // A contabilização continua: o registo existe e foi acertado.
+    expect((await db.query<{ status: string }>('select status from public.ai_usage')).rows).toEqual([{ status: 'done' }]);
   });
 });

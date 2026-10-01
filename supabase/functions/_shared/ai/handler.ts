@@ -57,6 +57,11 @@ export interface HandlerDeps {
   /** Só quando NENHUMA tentativa foi enviada ao fornecedor. */
   release(id: string): Promise<void>;
   now(): number;
+  /**
+   * Administrador da plataforma (`platform_admins`)? Só estes recebem o consumo e o custo na
+   * resposta. Sem esta dependência, ninguém os recebe. A contabilização é a mesma para todos.
+   */
+  isAdmin?(userId: string): Promise<boolean>;
 }
 
 export interface HandlerResult {
@@ -75,6 +80,8 @@ const LIMIT_MESSAGE: Record<LimitReason, string> = {
   workspace_concurrency: 'Há demasiados pedidos ao assistente em curso neste workspace. Tente daqui a pouco.',
   budget: 'O orçamento mensal do assistente foi atingido.',
 };
+/** Utilizadores comuns: mensagem funcional, sem conceitos nem valores financeiros. */
+const USER_LIMIT = 'Limite de utilização do assistente atingido.';
 
 const LIMIT_STATUS: Record<LimitReason, number> = {
   disabled: 503,
@@ -151,7 +158,8 @@ export async function handlePropose(authHeader: string | null, rawBody: string, 
     prices: limits.prices,
     kind: 'edit',
   });
-  if (!reservation.ok) return fail(LIMIT_STATUS[reservation.reason], `limit_${reservation.reason}`, LIMIT_MESSAGE[reservation.reason]);
+  const admin = (await deps.isAdmin?.(who.id).catch(() => false)) === true;
+  if (!reservation.ok) return fail(LIMIT_STATUS[reservation.reason], `limit_${reservation.reason}`, reservation.reason === 'budget' && !admin ? USER_LIMIT : LIMIT_MESSAGE[reservation.reason]);
 
   const started = deps.now();
   let known = ZERO;
@@ -214,7 +222,8 @@ export async function handlePropose(authHeader: string | null, rawBody: string, 
             proposal: p.data,
             model: runtime.model,
             simulated: false,
-            usage: { ...known, costUsd: round6(confirmed() + unknown()), attempts: sent, latencyMs: deps.now() - started, estimated: unknownAttempts > 0 },
+            // Consumo e custo: só para administradores (a contabilização no servidor é igual).
+            ...(admin ? { usage: { ...known, costUsd: round6(confirmed() + unknown()), attempts: sent, latencyMs: deps.now() - started, estimated: unknownAttempts > 0 } } : {}),
           },
         };
       } catch (e) {

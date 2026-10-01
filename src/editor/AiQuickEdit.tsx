@@ -4,12 +4,15 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from
 import { AI_CONTRACT_VERSION, type AiProposeRequest } from '../../supabase/functions/_shared/ai/contract.ts';
 import { buildScopeContext, planParts, resolveScope } from '../ai/context';
 import { estimateRequestUsd, formatUsd } from '../ai/cost';
-import { runQuickEdit, type QuickEditResult } from '../ai/quickEdit';
+import { runQuickEdit, type AiHandoff, type QuickEditResult } from '../ai/quickEdit';
 import { describeHidden } from '../ai/visibility';
+import type { AiStatus } from '../admin/aiAdminClient';
+import { navigate } from '../app/router';
 import { Button, IconButton, Spinner } from '../app/ui';
 import { displayName } from '../engine/labels';
 import type { DeviceId } from '../engine/styles';
 import { measure, type Box } from './CanvasToolbar';
+import { ImageGenNotice } from './ImageGenNotice';
 import { useAssistant } from './useAssistant';
 import { useEditorTick } from './useEditorTick';
 
@@ -22,6 +25,37 @@ import { useEditorTick } from './useEditorTick';
 type Phase = { kind: 'idle' } | { kind: 'working'; ctrl: AbortController } | { kind: 'done'; result: QuickEditResult; n: number };
 
 const WIDTH = 340;
+
+/**
+ * Pedido guardado quando o administrador vai configurar a geração de imagens: ao voltar e abrir a
+ * janela no mesmo elemento, o texto reaparece (só neste browser; conveniência, não estado do projeto).
+ */
+const PENDING_KEY = 'bolt-ai-pedido-pendente';
+interface Pending {
+  projectId: string;
+  elementId: string;
+  text: string;
+}
+function takePending(projectId: string, elementId: string): string {
+  try {
+    const raw = window.localStorage.getItem(PENDING_KEY);
+    const p: unknown = raw ? JSON.parse(raw) : null;
+    if (!p || typeof p !== 'object') return '';
+    const v = p as Partial<Pending>;
+    if (v.projectId !== projectId || v.elementId !== elementId || typeof v.text !== 'string') return '';
+    window.localStorage.removeItem(PENDING_KEY);
+    return v.text;
+  } catch {
+    return '';
+  }
+}
+function savePending(p: Pending): void {
+  try {
+    window.localStorage.setItem(PENDING_KEY, JSON.stringify(p));
+  } catch {
+    // Sem armazenamento local: o pedido não fica guardado (o aviso continua a dizer o que configurar).
+  }
+}
 const GAP = 8;
 /** Espaço da barra do elemento (por cima dele): a janela não a tapa. */
 const BAR = 40;
@@ -58,6 +92,7 @@ export function AiQuickEdit({
   device,
   onClose,
   onMore,
+  onHandoff,
 }: {
   editor: Editor;
   component: Component;
@@ -66,10 +101,13 @@ export function AiQuickEdit({
   device: DeviceId;
   onClose: () => void;
   onMore: (text: string) => void;
+  /** Proposta com imagens: o painel completo abre-a já (a geração confirma-se lá). */
+  onHandoff: (h: AiHandoff) => void;
 }) {
   useEditorTick(editor);
-  const { proposer, status } = useAssistant();
-  const [text, setText] = useState('');
+  const { proposer, images, status, admin } = useAssistant();
+  const [restored] = useState(() => takePending(projectId, component.getId()));
+  const [text, setText] = useState(restored);
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const input = useRef<HTMLTextAreaElement>(null);
   const self = useRef<HTMLDivElement>(null);
@@ -120,7 +158,8 @@ export function AiQuickEdit({
   const pricing = status?.pricing;
   // Elemento só: o contexto é pequeno; recalculado quando o texto ou o documento mudam.
   const cost = (() => {
-    if (!pricing || !proposer || proposer.simulated) return null;
+    // Valores financeiros só para administradores (o servidor também só lhos envia a eles).
+    if (!admin || !pricing || !proposer || proposer.simulated) return null;
     try {
       const scope = resolveScope(editor, 'element', component);
       const part = scope ? planParts(buildScopeContext(editor, scope.scope, device))[0] : undefined;
@@ -136,10 +175,16 @@ export function AiQuickEdit({
     if (!proposer || working || !text.trim()) return;
     const ctrl = new AbortController();
     setPhase({ kind: 'working', ctrl });
-    const result = await runQuickEdit({ editor, proposer, projectId, device, instruction: text, component, signal: ctrl.signal, onRequest: expose });
+    const result = await runQuickEdit({ editor, proposer, projectId, device, instruction: text, component, signal: ctrl.signal, imageGeneration: images !== null, onRequest: expose });
     if (!alive.current) return;
     if (result.kind === 'cancelled') {
       setPhase({ kind: 'idle' });
+      return;
+    }
+    // Imagens com o gerador disponível: segue logo para o painel com a proposta (a gerar: com a
+    // confirmação «Gerar imagem» já aberta). Sem gerador, a janela diz a causa (ver QuickResult).
+    if (result.kind === 'needs-images' && images) {
+      onHandoff(result.handoff);
       return;
     }
     if (result.kind === 'applied') setText('');
@@ -192,9 +237,14 @@ export function AiQuickEdit({
             data-testid="ai-quick-input"
           />
           <p className="hint ai-quick-hint">
-            {proposer.simulated ? 'Simulador: sem custo.' : cost !== null ? `Custo máximo estimado: ${formatUsd(cost)}.` : 'O custo é reservado no servidor antes da chamada.'} Ctrl+Enter
-            para alterar.
+            {admin ? (proposer.simulated ? 'Simulador: sem custo. ' : cost !== null ? `Custo máximo estimado: ${formatUsd(cost)}. ` : 'O custo é reservado no servidor antes da chamada. ') : proposer.simulated ? 'Simulador. ' : ''}
+            Ctrl+Enter para alterar.
           </p>
+          {restored && (
+            <p className="hint ai-quick-hint" data-testid="ai-quick-restored">
+              Pedido recuperado (guardado antes de configurar a geração de imagens).
+            </p>
+          )}
           <div className="ai-quick-actions">
             <Button variant="ghost" disabled={working} onClick={() => onMore(text)} data-testid="ai-quick-more">
               Mais opções
@@ -210,12 +260,42 @@ export function AiQuickEdit({
           </div>
         </>
       )}
-      {done && <QuickResult key={done.n} result={done.result} onUndo={() => editor.UndoManager.undo()} onMore={() => onMore(text)} />}
+      {done && (
+        <QuickResult
+          key={done.n}
+          result={done.result}
+          admin={admin}
+          status={status}
+          onUndo={() => editor.UndoManager.undo()}
+          onMore={() => onMore(text)}
+          onHandoff={onHandoff}
+          onConfigure={() => {
+            savePending({ projectId, elementId: component.getId(), text });
+            navigate('/configuracoes/ia');
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function QuickResult({ result, onUndo, onMore }: { result: QuickEditResult; onUndo: () => void; onMore: () => void }) {
+function QuickResult({
+  result,
+  admin,
+  status,
+  onUndo,
+  onMore,
+  onHandoff,
+  onConfigure,
+}: {
+  result: QuickEditResult;
+  admin: boolean;
+  status: AiStatus | null;
+  onUndo: () => void;
+  onMore: () => void;
+  onHandoff: (h: AiHandoff) => void;
+  onConfigure: () => void;
+}) {
   const [undone, setUndone] = useState(false);
   switch (result.kind) {
     case 'applied':
@@ -272,6 +352,17 @@ function QuickResult({ result, onUndo, onMore }: { result: QuickEditResult; onUn
           <p>{result.question}</p>
           <p className="hint">Nada foi alterado.</p>
           <Button onClick={onMore}>Responder no assistente</Button>
+        </div>
+      );
+    case 'needs-images':
+      // Sem gerador: a CAUSA primeiro (configuração), nunca carregar como resposta a «gerar».
+      return (
+        <div className="ai-quick-result" role="status" data-testid="ai-quick-result">
+          <p>Esta alteração precisa de uma imagem nova. Nada foi alterado.</p>
+          <ImageGenNotice admin={admin} status={status} onConfigure={onConfigure} testId="ai-quick-image-unavailable" />
+          <Button variant="ghost" onClick={() => onHandoff({ ...result.handoff, autoGenerate: false })} data-testid="ai-quick-use-existing">
+            Usar uma imagem existente no assistente
+          </Button>
         </div>
       );
     case 'needs-panel':

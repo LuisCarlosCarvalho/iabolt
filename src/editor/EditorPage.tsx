@@ -26,6 +26,7 @@ import { GlobalStylesPanel } from './GlobalStylesPanel';
 import { HistoryPageNotice } from './HistoryPageNotice';
 import { ProjectPreview } from './ProjectPreview';
 import { toolById, ToolRail, type ToolId } from './ToolRail';
+import type { AiHandoff } from '../ai/quickEdit';
 import { AiQuickEdit } from './AiQuickEdit';
 import { CanvasToolbar } from './CanvasToolbar';
 import { ImageDialog } from './ImageDialog';
@@ -154,6 +155,7 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
   /** Janela rápida «Editar com IA» (botão da barra do elemento). */
   const [quickAi, setQuickAi] = useState<Component | null>(null);
   const [aiPrefill, setAiPrefill] = useState<{ text: string; n: number }>({ text: '', n: 0 });
+  const [aiHandoff, setAiHandoff] = useState<(AiHandoff & { n: number }) | undefined>(undefined);
   const closeQuickAi = useCallback(() => setQuickAi(null), []);
   // Contentor do canvas (referencial da barra de ferramentas contextual).
   const [canvasWrap, setCanvasWrap] = useState<HTMLDivElement | null>(null);
@@ -401,7 +403,7 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
           {editor && leftTool === 'layers' && <TickedPages editor={editor} />}
           {editor && leftTool === 'layers' && <TickedLayers editor={editor} />}
           {editor && leftTool === 'styles' && <TickedGlobalStyles editor={editor} />}
-          {editor && leftTool === 'ai' && <TickedAi editor={editor} projectId={doc.projectId} urls={urls} device={device} focusRequest={aiFocus} prefill={aiPrefill} {...(summary.workspaceId ? { workspaceId: summary.workspaceId } : {})} />}
+          {editor && leftTool === 'ai' && <TickedAi editor={editor} projectId={doc.projectId} urls={urls} device={device} focusRequest={aiFocus} prefill={aiPrefill} {...(aiHandoff ? { handoff: aiHandoff } : {})} {...(summary.workspaceId ? { workspaceId: summary.workspaceId } : {})} />}
           {editor && leftTool === 'blocks' && <TickedBlocks editor={editor} onImageInserted={setImageTarget} target={insertTarget} onClearTarget={() => setInsertTarget(null)} />}
           {editor && leftTool === 'images' && (
             <TickedImages editor={editor} projectId={doc.projectId} urls={urls} {...(summary.workspaceId ? { workspaceId: summary.workspaceId } : {})} />
@@ -456,6 +458,12 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
               projectId={doc.projectId}
               device={device}
               onClose={closeQuickAi}
+              onHandoff={(h) => {
+                // Imagens: o painel completo abre já com a proposta (e a geração por confirmar).
+                setQuickAi(null);
+                setLeftTool('ai');
+                setAiHandoff((prev) => ({ ...h, n: (prev?.n ?? 0) + 1 }));
+              }}
               onMore={(text) => {
                 // Painel completo com o mesmo texto (âmbito, antes/depois, imagens, esclarecimentos).
                 setQuickAi(null);

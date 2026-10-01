@@ -103,17 +103,22 @@ test('[simulado] janela rápida: «Alterar» aplica logo, um só «Desfazer», e
   await expect(page.getByTestId('undo')).toBeDisabled();
   await page.keyboard.press('Escape');
 
-  // Imagem a escolher: nada aplicado; segue para o painel.
+  // Proposta inválida: mensagem e nada alterado.
   await frame(page).locator('img').first().click();
   await page.getByTestId('ct-ai').click();
-  await page.getByTestId('ai-quick-input').fill('imagem: escolher');
-  await page.getByTestId('ai-quick-apply').click();
-  await expect(page.getByTestId('ai-quick-result')).toContainText('precisa de escolher ou carregar imagens');
-  await expect(page.getByTestId('undo')).toBeDisabled();
-
-  // Proposta inválida: mensagem e nada alterado.
   await page.getByTestId('ai-quick-input').fill('[simulado:invalido] x');
   await page.getByTestId('ai-quick-apply').click();
   await expect(page.getByTestId('ai-quick-error')).toBeVisible();
+  await expect(page.getByTestId('undo')).toBeDisabled();
+
+  // Imagem a escolher: nada aplicado; o painel abre JÁ com a proposta (sem segundo pedido).
+  const sent = await page.evaluate(() => window.__boltAiSent ?? 0);
+  await page.getByTestId('ai-quick-input').fill('imagem: escolher');
+  await page.getByTestId('ai-quick-apply').click();
+  await expect(page.getByTestId('ai-quick')).toBeHidden();
+  await expect(page.getByTestId('left-panel')).toHaveAttribute('data-tool', 'ai');
+  await expect(page.getByTestId('ai-image-slot')).toBeVisible();
+  await expect(page.getByTestId('ai-image-missing')).toBeVisible();
+  expect(await page.evaluate(() => window.__boltAiSent ?? 0)).toBe(sent + 1);
   await expect(page.getByTestId('undo')).toBeDisabled();
 });

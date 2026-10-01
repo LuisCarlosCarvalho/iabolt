@@ -22,6 +22,11 @@ export interface ImageDeps {
   settle(id: string, s: Settlement): Promise<void>;
   release(id: string): Promise<void>;
   now(): number;
+  /**
+   * Administrador da plataforma (`platform_admins`)? Só estes recebem valores financeiros. Sem esta
+   * dependência, ninguém os recebe. A contabilização e os limites são iguais para todos.
+   */
+  isAdmin?(userId: string): Promise<boolean>;
 }
 
 export interface ImageResult {
@@ -41,6 +46,8 @@ const LIMITS: Partial<Record<LimitReason, [number, string]>> = {
   workspace_concurrency: [429, 'Há demasiados pedidos em curso neste workspace.'],
   budget: [429, 'O orçamento mensal foi atingido.'],
 };
+/** Utilizadores comuns: mensagem funcional, sem conceitos nem valores financeiros. */
+const USER_LIMIT = 'Limite de utilização atingido.';
 
 /** Tempo máximo de uma geração (uma única tentativa). */
 export const IMAGE_TIMEOUT_MS = 90_000;
@@ -83,10 +90,11 @@ export async function handleImage(authHeader: string | null, rawBody: string, de
     prices: { input: rt.image_prices.input, output: rt.image_prices.output, image: ceiling },
     kind: 'image',
   });
+  const admin = (await deps.isAdmin?.(who.id).catch(() => false)) === true;
   if (!reservation.ok) {
     if (reservation.reason === 'disabled') return DISABLED();
     const [status, message] = LIMITS[reservation.reason] ?? [429, 'Limite atingido.'];
-    return fail(status, `limit_${reservation.reason}`, message);
+    return fail(status, `limit_${reservation.reason}`, reservation.reason === 'budget' && !admin ? USER_LIMIT : message);
   }
 
   const started = deps.now();
@@ -109,7 +117,7 @@ export async function handleImage(authHeader: string | null, rawBody: string, de
     });
     return {
       status: 200,
-      body: { mime: img.mime, base64: img.base64, model: rt.image_model, provider: rt.image_provider, costUsd: cost, estimated: false, simulated: false },
+      body: { mime: img.mime, base64: img.base64, model: rt.image_model, provider: rt.image_provider, ...(admin ? { costUsd: cost, estimated: false } : {}), simulated: false },
     };
   } catch (e) {
     const charged = e instanceof ProviderError ? e.charged : 'unknown';

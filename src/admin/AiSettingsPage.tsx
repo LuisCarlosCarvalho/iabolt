@@ -385,6 +385,16 @@ export function AiSettingsPage() {
                     <span>{s.image_enabled ? 'Geração de imagens ativa' : 'Geração de imagens desativada'}</span>
                   </label>
                 </div>
+                {/* Credencial: uma chave por fornecedor (passo 1), partilhada pela edição e pelas imagens. */}
+                <p className="hint" data-testid="ai-image-credential">
+                  {!imageProvider
+                    ? 'Credencial: escolha primeiro o fornecedor de imagens.'
+                    : s.keys[imageProvider].status === 'valid'
+                      ? `Credencial: usa a chave ${PROVIDER_LABEL[imageProvider]} já guardada no passo 1 (reconhecida)${imageProvider === s.provider ? ', a mesma da edição' : ''}. Não é preciso outra chave.`
+                      : s.keys[imageProvider].configured
+                        ? `Credencial: a chave ${PROVIDER_LABEL[imageProvider]} do passo 1 foi recusada no último teste. Substitua-a no cartão ${PROVIDER_LABEL[imageProvider]} (passo 1) e teste-a.`
+                        : `Credencial em falta: guarde a chave ${PROVIDER_LABEL[imageProvider]} no cartão ${PROVIDER_LABEL[imageProvider]} do passo 1 (fica cifrada no cofre do servidor). Depois guarde o modelo e ative a geração aqui.`}
+                </p>
                 <p className="hint" data-testid="ai-image-generation">
                   {imageGen ? `Geração de imagens validada em ${formatDateTime(imageGen.at)} com este modelo.` : 'Geração de imagens por validar: só uma imagem real gerada com este modelo a comprova.'}
                 </p>

@@ -114,6 +114,11 @@ export class SimulatedProposer implements Proposer {
       } else if (/^par[áa]grafo$/i.test(part)) ops.push({ op: 'setTextTag', id: target, tag: 'p' });
       else if ((m = /^imagem\s*:\s*(.*)$/i.exec(part))) ops.push({ op: 'replaceImage', id: target, image: source(m[1] ?? '') });
       else if ((m = /^fundo-imagem\s*:\s*(.*)$/i.exec(part))) ops.push({ op: 'setBackgroundImage', id: target, device: req.device, image: source(m[1] ?? '') });
+      else if ((m = /^(?:cria|criar|gera|gerar)\s+(?:uma\s+)?imagem\s+de\s+fundo\s+(?:com|de)\s+(.+)$/i.exec(part)) && m[1]) {
+        // Texto livre: imagem de fundo NOVA → geração (ou escolha, se a geração não estiver disponível).
+        const prompt = m[1].trim();
+        ops.push({ op: 'setBackgroundImage', id: target, device: req.device, image: req.imageGeneration ? { kind: 'generate', prompt, aspect: '16:9' } : { kind: 'choose', hint: prompt } });
+      }
       else if ((m = /^inserir t[íi]tulo\s*:\s*(.+)$/i.exec(part)) && m[1]) {
         seq += 1;
         ops.push({ op: 'insertBlock', block: 'heading', anchor: target, position: 'inside', newId: `ai-titulo-${seq}`, text: m[1].trim() });
@@ -186,8 +191,9 @@ async function errorText(error: unknown, fallback: string): Promise<string> {
 
 export interface GeneratedImageResult {
   blob: Blob;
-  costUsd: number;
-  estimated: boolean;
+  /** Só para administradores (o servidor não o envia aos outros utilizadores). */
+  costUsd?: number;
+  estimated?: boolean;
   simulated: boolean;
   model: string;
 }
@@ -196,8 +202,8 @@ export interface GeneratedImageResult {
 export interface ImageGenerator {
   readonly label: string;
   readonly simulated: boolean;
-  /** Custo máximo por imagem (USD), mostrado antes de confirmar. */
-  readonly priceUsd: number;
+  /** Custo máximo por imagem (USD), mostrado ao ADMINISTRADOR antes de confirmar (NULL para os outros). */
+  readonly priceUsd: number | null;
   generate(req: Omit<AiImageRequest, 'contract'>, signal: AbortSignal): Promise<GeneratedImageResult>;
 }
 
@@ -214,7 +220,7 @@ export class ServerImageGenerator implements ImageGenerator {
   constructor(
     private readonly client: SupabaseClient,
     readonly label: string,
-    readonly priceUsd: number,
+    readonly priceUsd: number | null,
   ) {}
 
   async generate(req: Omit<AiImageRequest, 'contract'>, signal: AbortSignal): Promise<GeneratedImageResult> {
@@ -223,7 +229,7 @@ export class ServerImageGenerator implements ImageGenerator {
     if (error) throw new ProposerError(await errorText(error, 'A imagem não foi gerada. Nada foi alterado.'), 'server');
     const r = AiImageResponse.safeParse(data);
     if (!r.success) throw new ProposerError('A resposta da geração não respeitou o formato. Nada foi alterado.', 'invalid_response');
-    return { blob: base64ToBlob(r.data.base64, r.data.mime), costUsd: r.data.costUsd, estimated: r.data.estimated, simulated: false, model: r.data.model };
+    return { blob: base64ToBlob(r.data.base64, r.data.mime), ...(r.data.costUsd !== undefined ? { costUsd: r.data.costUsd } : {}), ...(r.data.estimated !== undefined ? { estimated: r.data.estimated } : {}), simulated: false, model: r.data.model };
   }
 }
 

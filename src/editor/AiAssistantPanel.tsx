@@ -31,6 +31,7 @@ import {
 import { buildScopeContext, capabilitiesOf, planParts, resolveScope, type ContextPart, type ResolvedScope } from '../ai/context';
 import { estimateRequestUsd, formatUsd } from '../ai/cost';
 import type { ImageGenerator } from '../ai/proposers';
+import type { AiHandoff } from '../ai/quickEdit';
 import { canvasSettled, describeHidden, hiddenStyleChanges } from '../ai/visibility';
 import type { AiStatus } from '../admin/aiAdminClient';
 import type { AssetUrlMap } from '../assets/assetRefs';
@@ -44,7 +45,9 @@ import { previewDocument } from '../engine/runtime';
 import { deviceById, DEVICES, type DeviceId } from '../engine/styles';
 import { pageImages } from './images';
 import { previewSize, ScaledPreview } from './ScaledPreview';
+import { ImageGenNotice } from './ImageGenNotice';
 import { useAssistant } from './useAssistant';
+import { navigate } from '../app/router';
 
 /**
  * Painel «Assistente IA». O utilizador escolhe EXPLICITAMENTE o âmbito (elemento, secção, página,
@@ -98,6 +101,8 @@ interface Proposal {
   device: AiDevice;
   /** Versão do documento quando a proposta foi pedida (qualquer mudança invalida-a). */
   version: string;
+  /** Vinda da janela rápida com uma imagem a gerar: a confirmação «Gerar imagem» abre logo. */
+  autoGenerate?: boolean;
 }
 
 type Phase =
@@ -168,6 +173,7 @@ export function AiAssistantPanel({
   device: editingDevice,
   focusRequest = 0,
   prefill,
+  handoff,
 }: {
   editor: Editor;
   projectId: string;
@@ -177,8 +183,10 @@ export function AiAssistantPanel({
   focusRequest?: number;
   /** Texto vindo da janela rápida «Editar com IA» (o contador muda a cada pedido). */
   prefill?: { text: string; n: number };
+  /** Proposta vinda da janela rápida (imagens): aparece já, sem novo pedido ao assistente. */
+  handoff?: AiHandoff & { n: number };
 }) {
-  const { proposer, images, status } = useAssistant();
+  const { proposer, images, status, admin } = useAssistant();
   const { assets } = useServices();
   const [instruction, setInstruction] = useState('');
   const [scopeKind, setScopeKind] = useState<AiScopeKind>('element');
@@ -200,6 +208,23 @@ export function AiAssistantPanel({
   const device: AiDevice = override && override.from === editingDevice ? override.value : editingDevice;
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const [choices, setChoices] = useState<Map<string, ImageChoice>>(new Map());
+  // Proposta passada pela janela rápida: o mesmo pedido, o mesmo elemento, já validada no envio.
+  const handoffN = handoff?.n ?? 0;
+  const [handedOff, setHandedOff] = useState(0);
+  if (handoff && handoffN > handedOff) {
+    setHandedOff(handoffN);
+    const req = handoff.request;
+    const target = req.scope.kind === 'element' ? findInProject(editor, req.scope.id)?.component : undefined;
+    const resolved = resolveScope(editor, 'element', target) ?? { scope: req.scope, label: 'Elemento', pageIds: [] };
+    setScopeKind('element');
+    setExplicit(null);
+    setInstruction(req.instruction);
+    setChoices(new Map());
+    setPhase({
+      kind: 'proposal',
+      proposal: { requests: [req], responses: [handoff.response], ops: handoff.response.proposal.operations, summary: handoff.response.proposal.summary, scope: resolved, device: req.device, version: req.documentVersion, autoGenerate: handoff.autoGenerate },
+    });
+  }
   const alive = useRef(true);
   /** Um pedido de cada vez: impede envios duplicados (duplo clique, Enter repetido). */
   const inFlight = useRef(false);
@@ -451,11 +476,14 @@ export function AiAssistantPanel({
             <p className="hint ai-plan" data-testid="ai-plan">
               {plan.error ? `${plan.error} ` : ''}
               {plan.parts.length > 1 ? `Pedido grande: ${plan.parts.length} partes (uma proposta consolidada no fim). ` : ''}
-              {proposer.simulated
-                ? 'Simulador: sem custo.'
-                : plan.cost !== null
-                  ? `Custo máximo estimado: ${formatUsd(plan.cost)} (reserva feita no servidor; o custo real costuma ser menor).`
-                  : 'O custo máximo é calculado e reservado no servidor antes da chamada.'}
+              {/* Valores financeiros: só administradores (o servidor também só lhos envia a eles). */}
+              {!admin
+                ? ''
+                : proposer.simulated
+                  ? 'Simulador: sem custo.'
+                  : plan.cost !== null
+                    ? `Custo máximo estimado: ${formatUsd(plan.cost)} (reserva feita no servidor; o custo real costuma ser menor).`
+                    : 'O custo máximo é calculado e reservado no servidor antes da chamada.'}
               {plan.parts.length > plan.maxParts ? ` Excede o máximo de ${plan.maxParts} partes: escolha um âmbito menor.` : ''}
             </p>
           )}
@@ -547,6 +575,8 @@ export function AiAssistantPanel({
           choices={choices}
           onChoose={(index, choice) => setChoices((prev) => new Map(prev).set(index, choice))}
           images={images}
+          admin={admin}
+          status={status}
           projectId={projectId}
           workspaceId={workspaceId}
           urls={urls}
@@ -586,6 +616,8 @@ function ProposalView({
   choices,
   onChoose,
   images,
+  admin,
+  status,
   projectId,
   workspaceId,
   urls,
@@ -597,6 +629,8 @@ function ProposalView({
   choices: ReadonlyMap<string, ImageChoice>;
   onChoose: (key: string, choice: ImageChoice) => void;
   images: ImageGenerator | null;
+  admin: boolean;
+  status: AiStatus | null;
   projectId: string;
   workspaceId: string | undefined;
   urls: AssetUrlMap;
@@ -673,7 +707,7 @@ function ProposalView({
         </p>
       )}
 
-      {slots.map((s) => (
+      {slots.map((s, i) => (
         <ImageSlot
           key={s.key}
           editor={editor}
@@ -683,6 +717,9 @@ function ProposalView({
           choice={choices.get(s.key)}
           onChoose={(ch) => onChoose(s.key, ch)}
           images={images}
+          admin={admin}
+          status={status}
+          autoConfirm={proposal.autoGenerate === true && i === slots.findIndex((x) => x.source.kind === 'generate')}
           projectId={projectId}
           workspaceId={workspaceId}
           urls={urls}
@@ -776,6 +813,9 @@ function ImageSlot({
   choice,
   onChoose,
   images,
+  admin,
+  status,
+  autoConfirm,
   projectId,
   workspaceId,
   urls,
@@ -787,6 +827,10 @@ function ImageSlot({
   choice: ImageChoice | undefined;
   onChoose: (c: ImageChoice) => void;
   images: ImageGenerator | null;
+  admin: boolean;
+  status: AiStatus | null;
+  /** Abrir já a confirmação «Gerar imagem» (pedido de geração vindo da janela rápida). */
+  autoConfirm: boolean;
   projectId: string;
   workspaceId: string | undefined;
   urls: AssetUrlMap;
@@ -797,7 +841,7 @@ function ImageSlot({
   const [library, setLibrary] = useState<LibraryImage[] | null>(null);
   const [prompt, setPrompt] = useState(source.kind === 'generate' ? source.prompt : (source.hint ?? ''));
   const [aspect, setAspect] = useState<(typeof IMAGE_ASPECTS)[number]>(source.kind === 'generate' ? source.aspect : '16:9');
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState(autoConfirm && source.kind === 'generate' && images !== null);
   const [generating, setGenerating] = useState<AbortController | null>(null);
   const [error, setError] = useState<string | null>(null);
   const target = op.op === 'insertBlock' || op.op === 'insertSection' ? undefined : findInProject(editor, op.id)?.component;
@@ -858,7 +902,7 @@ function ImageSlot({
           <img className="img-thumb" src={choice.display} alt="Imagem escolhida para a proposta" />
           <span className="hint">
             {choice.origin === 'generated'
-              ? `Imagem ${images?.simulated ? 'SIMULADA (não é IA)' : 'gerada'}${choice.costUsd ? ` · custo registado ${formatUsd(choice.costUsd)}` : ''}. Só substitui a atual se aplicar a proposta.`
+              ? `Imagem ${images?.simulated ? 'SIMULADA (não é IA)' : 'gerada'}${admin && choice.costUsd ? ` · custo registado ${formatUsd(choice.costUsd)}` : ''}. Só substitui a atual se aplicar a proposta.`
               : choice.origin === 'upload'
                 ? 'Imagem carregada: só é guardada no projeto se aplicar a proposta.'
                 : 'Imagem existente.'}
@@ -901,13 +945,13 @@ function ImageSlot({
               </>
             ) : (
               <Button onClick={() => setConfirming(true)} disabled={prompt.trim().length < 3} data-testid="ai-generate">
-                <Wand2 aria-hidden="true" /> Gerar imagem ({images.simulated ? 'simulada, sem custo' : `≈ ${formatUsd(images.priceUsd)}`})
+                <Wand2 aria-hidden="true" /> Gerar imagem{admin ? ` (${images.simulated ? 'simulada, sem custo' : `≈ ${formatUsd(images.priceUsd ?? 0)}`})` : images.simulated ? ' (simulada)' : ''}
               </Button>
             )}
           </div>
         </div>
       ) : (
-        <p className="hint">A geração de imagens não está configurada: escolha uma imagem existente ou carregue uma.</p>
+        <ImageGenNotice admin={admin} status={status} onConfigure={() => navigate('/configuracoes/ia')} />
       )}
       {error && (
         <p className="error-text" role="alert" data-testid="ai-image-error">
@@ -925,15 +969,18 @@ function ImageSlot({
               Cancelar
             </Button>
             <Button variant="primary" onClick={() => void generate()} data-testid="ai-generate-confirm">
-              Gerar ({images?.simulated ? 'sem custo' : `≈ ${formatUsd(images?.priceUsd ?? 0)}`})
+              {admin ? `Gerar (${images?.simulated ? 'sem custo' : `≈ ${formatUsd(images?.priceUsd ?? 0)}`})` : 'Gerar imagem'}
             </Button>
           </>
         }
       >
         <p style={{ margin: 0 }} data-testid="ai-generate-cost">
           {images?.simulated
-            ? 'Simulador: é desenhada uma imagem de teste identificada como SIMULADA, sem custo.'
-            : `Gerar uma imagem com ${images?.label ?? 'o fornecedor configurado'} custa até ${formatUsd(images?.priceUsd ?? 0)}. O custo fica registado mesmo que depois descarte a imagem. A imagem gerada NÃO substitui a atual: só entra no site se aplicar a proposta.`}
+            ? `Simulador: é desenhada uma imagem de teste identificada como SIMULADA${admin ? ', sem custo' : ''}.`
+            : admin
+              ? `Gerar uma imagem com ${images?.label ?? 'o fornecedor configurado'} custa até ${formatUsd(images?.priceUsd ?? 0)}. O custo fica registado mesmo que depois descarte a imagem. A imagem gerada NÃO substitui a atual: só entra no site se aplicar a proposta.`
+              : 'Gerar uma imagem nova com IA a partir desta descrição? Conta para o limite de utilização, mesmo que depois a descarte. A imagem gerada NÃO substitui a atual: só entra no site se aplicar a proposta.'}
+          {` Descrição: «${prompt.trim()}».`}
         </p>
       </Modal>
 

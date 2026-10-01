@@ -93,6 +93,11 @@ describe('Configurações de IA · autorização (PGlite)', () => {
     const status2 = (await as<Record<string, unknown>>(USER, 'select * from public.ai_status_v2()')).rows[0];
     expect(Object.keys(status2 ?? {}).sort()).toEqual(['enabled', 'image_enabled', 'image_label', 'image_model', 'image_price_usd', 'image_provider', 'max_output_tokens', 'max_parts', 'max_retries', 'model', 'model_label', 'overhead_tokens', 'prices', 'provider']);
     expect(JSON.stringify([status, status2])).not.toMatch(/secret|key_/);
+    // Valores financeiros só para administradores (as mesmas colunas, a NULL para os outros).
+    expect(status2?.prices).toBeNull();
+    expect(status2?.image_price_usd).toBeNull();
+    const adminStatus = (await as<Record<string, unknown>>(ADMIN, 'select * from public.ai_status_v2()')).rows[0];
+    expect(adminStatus?.prices).toMatchObject({ input: expect.any(Number), output: expect.any(Number) });
   });
 
   it('mesmo pelo papel de serviço, um ator que não é administrador é recusado', async () => {

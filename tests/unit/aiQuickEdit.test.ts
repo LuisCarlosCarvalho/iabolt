@@ -32,6 +32,25 @@ const run = (editor: Editor, component: Component, instruction: string, proposer
   runQuickEdit({ editor, proposer, projectId: 'p1', device: 'desktop', instruction, component, signal });
 
 describe('Editar com IA rápido', () => {
+  it('pedido de imagem de fundo NOVA (texto do print): com gerador segue para gerar; sem gerador, para escolher — nada aplicado', async () => {
+    const editor = await nimbus();
+    const section = first(editor.getWrapper() as Component, 'section');
+    const ask = (imageGeneration: boolean) =>
+      runQuickEdit({ editor, proposer: new SimulatedProposer(0), projectId: 'p1', device: 'desktop', instruction: 'criar uma imagem de fundo com alunos vindo para casa', component: section, signal: new AbortController().signal, imageGeneration });
+    const withGen = await ask(true);
+    expect(withGen.kind).toBe('needs-images');
+    if (withGen.kind !== 'needs-images') return;
+    expect(withGen.generate).toBe(true);
+    expect(withGen.handoff.autoGenerate).toBe(true);
+    expect(withGen.handoff.request.imageGeneration).toBe(true);
+    expect(withGen.handoff.response.proposal.operations).toEqual([
+      { op: 'setBackgroundImage', id: section.getId(), device: 'desktop', image: { kind: 'generate', prompt: 'alunos vindo para casa', aspect: '16:9' } },
+    ]);
+    const without = await ask(false);
+    expect(without.kind === 'needs-images' && without.generate).toBe(false);
+    expect(editor.UndoManager.hasUndo()).toBe(false);
+  });
+
   it('aplica logo a proposta validada num só passo de desfazer', async () => {
     const editor = await nimbus();
     const h1 = first(editor.getWrapper() as Component, 'h1');
@@ -51,7 +70,7 @@ describe('Editar com IA rápido', () => {
     const root = editor.getWrapper() as Component;
     const h1 = first(root, 'h1');
     expect((await run(editor, h1, '[simulado:ambiguo] a imagem')).kind).toBe('clarify');
-    expect((await run(editor, first(root, 'image'), 'imagem: escolher')).kind).toBe('needs-panel');
+    expect((await run(editor, first(root, 'image'), 'imagem: escolher')).kind).toBe('needs-images');
     const invalid = await run(editor, h1, '[simulado:invalido] x');
     expect(invalid.kind).toBe('error');
     expect((await run(editor, h1, 'algo que o simulador não entende')).kind).toBe('nothing');
