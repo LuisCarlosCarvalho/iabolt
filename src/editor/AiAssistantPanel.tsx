@@ -217,7 +217,8 @@ export function AiAssistantPanel({
     const target = req.scope.kind === 'element' ? findInProject(editor, req.scope.id)?.component : undefined;
     const resolved = resolveScope(editor, 'element', target) ?? { scope: req.scope, label: 'Elemento', pageIds: [] };
     setScopeKind('element');
-    setExplicit(null);
+    // O destino da proposta (ex.: a imagem do cartão), que pode não ser o elemento selecionado.
+    setExplicit(req.scope.kind === 'element' ? { kind: 'element', id: req.scope.id } : null);
     setInstruction(req.instruction);
     setChoices(new Map());
     setPhase({
@@ -377,6 +378,8 @@ export function AiAssistantPanel({
       releaseImages(choices);
       setChoices(new Map());
       setInstruction('');
+      // Destino explícito (vindo da janela rápida) só vale para esta proposta.
+      setExplicit(null);
       // Confirma no canvas que os estilos aplicados se veem (num site importado, uma regra com
       // !important pode prevalecer): se não, diz-o em vez de dar a alteração como feita.
       setPhase({ kind: 'applied', count, pages, hidden: [] });
@@ -584,6 +587,7 @@ export function AiAssistantPanel({
             // Imagens geradas ou carregadas e não aplicadas: libertadas da memória; nada foi guardado.
             releaseImages(choices);
             setChoices(new Map());
+            setExplicit(null);
             setPhase({ kind: 'idle', note: 'Proposta descartada. Nada foi alterado.' });
           }}
           onApply={() => apply(phase.proposal)}

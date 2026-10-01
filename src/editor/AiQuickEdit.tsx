@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from
 import { AI_CONTRACT_VERSION, type AiProposeRequest } from '../../supabase/functions/_shared/ai/contract.ts';
 import { buildScopeContext, planParts, resolveScope } from '../ai/context';
 import { estimateRequestUsd, formatUsd } from '../ai/cost';
+import { imageTargets, type ImageTarget } from '../ai/imageTargets';
 import { runQuickEdit, type AiHandoff, type QuickEditResult } from '../ai/quickEdit';
 import { describeHidden } from '../ai/visibility';
 import type { AiStatus } from '../admin/aiAdminClient';
@@ -109,6 +110,8 @@ export function AiQuickEdit({
   const [restored] = useState(() => takePending(projectId, component.getId()));
   const [text, setText] = useState(restored);
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
+  /** Imagem escolhida quando o pedido fala de uma imagem e o bloco tem várias. */
+  const [pickedId, setPickedId] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const self = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<Box | null>(() => measure(editor, component, host));
@@ -171,11 +174,17 @@ export function AiQuickEdit({
     }
   })();
 
+  // Pedido sobre uma imagem com um bloco selecionado: a imagem (ou o fundo) a que se refere.
+  const targets = imageTargets(component, text);
+  const picked = targets?.length === 1 ? targets[0] : targets?.find((t) => t.component.getId() === pickedId);
+  const needsPick = !!targets && targets.length > 1 && !picked;
+  const destination: Component = picked?.component ?? component;
+
   const submit = async () => {
-    if (!proposer || working || !text.trim()) return;
+    if (!proposer || working || !text.trim() || needsPick) return;
     const ctrl = new AbortController();
     setPhase({ kind: 'working', ctrl });
-    const result = await runQuickEdit({ editor, proposer, projectId, device, instruction: text, component, signal: ctrl.signal, imageGeneration: images !== null, onRequest: expose });
+    const result = await runQuickEdit({ editor, proposer, projectId, device, instruction: text, component: destination, signal: ctrl.signal, imageGeneration: images !== null, onRequest: expose });
     if (!alive.current) return;
     if (result.kind === 'cancelled') {
       setPhase({ kind: 'idle' });
@@ -240,6 +249,31 @@ export function AiQuickEdit({
             {admin ? (proposer.simulated ? 'Simulador: sem custo. ' : cost !== null ? `Custo máximo estimado: ${formatUsd(cost)}. ` : 'O custo é reservado no servidor antes da chamada. ') : proposer.simulated ? 'Simulador. ' : ''}
             Ctrl+Enter para alterar.
           </p>
+          {targets && targets.length === 1 && picked && <TargetLine target={picked} />}
+          {targets && targets.length > 1 && (
+            <div className="ai-quick-targets" role="radiogroup" aria-label="Que imagem quer alterar?" data-testid="ai-quick-targets">
+              <span className="hint">Que imagem quer alterar?</span>
+              <div className="ai-quick-target-grid">
+                {targets.map((t) => (
+                  <button
+                    key={t.component.getId()}
+                    type="button"
+                    role="radio"
+                    aria-checked={picked === t}
+                    aria-label={t.label}
+                    title={t.label}
+                    className={picked === t ? 'is-active' : ''}
+                    disabled={working}
+                    onClick={() => setPickedId(t.component.getId())}
+                    data-testid="ai-quick-target-option"
+                  >
+                    {t.thumb ? <img src={t.thumb} alt="" /> : <span>{t.label}</span>}
+                  </button>
+                ))}
+              </div>
+              {picked && <TargetLine target={picked} />}
+            </div>
+          )}
           {restored && (
             <p className="hint ai-quick-hint" data-testid="ai-quick-restored">
               Pedido recuperado (guardado antes de configurar a geração de imagens).
@@ -254,7 +288,7 @@ export function AiQuickEdit({
                 Cancelar
               </Button>
             ) : null}
-            <Button variant="primary" disabled={working || !text.trim()} onClick={() => void submit()} data-testid="ai-quick-apply">
+            <Button variant="primary" disabled={working || !text.trim() || needsPick} onClick={() => void submit()} data-testid="ai-quick-apply">
               {working ? <Spinner label="A alterar…" /> : 'Alterar'}
             </Button>
           </div>
@@ -276,6 +310,18 @@ export function AiQuickEdit({
         />
       )}
     </div>
+  );
+}
+
+/** A imagem (ou o fundo) que o pedido vai alterar, mostrada antes de enviar. */
+function TargetLine({ target }: { target: ImageTarget }) {
+  return (
+    <p className="ai-quick-target-line" data-testid="ai-quick-target">
+      {target.thumb && <img src={target.thumb} alt="" />}
+      <span>
+        Vai alterar: <strong>{target.label}</strong>
+      </span>
+    </p>
   );
 }
 

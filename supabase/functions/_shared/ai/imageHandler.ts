@@ -1,5 +1,5 @@
 import type { LimitReason, Reservation, Settlement } from './handler.ts';
-import { AiImageRequest, MAX_IMAGE_BASE64, type AiImageResponse, type ImageGenerator } from './images.ts';
+import { AiImageRequest, MAX_IMAGE_BASE64, OUTDATED_CLIENT_MESSAGE, type AiImageResponse, type ImageGenerator } from './images.ts';
 import type { RuntimeSettings } from './limits.ts';
 import { ProviderError } from './provider.ts';
 import type { ProviderId } from './ids.ts';
@@ -70,6 +70,11 @@ export async function handleImage(authHeader: string | null, rawBody: string, de
   const workspaceId = await deps.projectWorkspace(authHeader, req.projectId);
   if (!workspaceId) return fail(403, 'no_access', 'Sem acesso a este projeto.');
 
+  const admin = (await deps.isAdmin?.(who.id).catch(() => false)) === true;
+  // Separador aberto com o frontend anterior: exige o custo na resposta, que um utilizador comum já
+  // não recebe. Recusa-se ANTES da reserva (nada gerado nem cobrado), com instrução clara.
+  if (req.client !== 2 && !admin) return fail(409, 'client_outdated', OUTDATED_CLIENT_MESSAGE);
+
   const rt = await deps.loadRuntime();
   if (!rt || !rt.image_enabled || rt.image_key_status !== 'valid' || !rt.image_provider || !rt.image_model || !rt.image_prices || rt.image_prices.image === null) return DISABLED();
   const key = await deps.providerKey(rt.image_provider);
@@ -90,7 +95,6 @@ export async function handleImage(authHeader: string | null, rawBody: string, de
     prices: { input: rt.image_prices.input, output: rt.image_prices.output, image: ceiling },
     kind: 'image',
   });
-  const admin = (await deps.isAdmin?.(who.id).catch(() => false)) === true;
   if (!reservation.ok) {
     if (reservation.reason === 'disabled') return DISABLED();
     const [status, message] = LIMITS[reservation.reason] ?? [429, 'Limite atingido.'];

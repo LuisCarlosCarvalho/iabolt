@@ -3,5 +3,6 @@
   "framework": "vite",
   "buildCommand": "vite build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/((?!assets/).*)", "destination": "/index.html" }]
+  "rewrites": [{ "source": "/((?!assets/|version\\.json).*)", "destination": "/index.html" }],
+  "headers": [{ "source": "/version.json", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }]
 }

@@ -114,7 +114,11 @@ export class SimulatedProposer implements Proposer {
       } else if (/^par[áa]grafo$/i.test(part)) ops.push({ op: 'setTextTag', id: target, tag: 'p' });
       else if ((m = /^imagem\s*:\s*(.*)$/i.exec(part))) ops.push({ op: 'replaceImage', id: target, image: source(m[1] ?? '') });
       else if ((m = /^fundo-imagem\s*:\s*(.*)$/i.exec(part))) ops.push({ op: 'setBackgroundImage', id: target, device: req.device, image: source(m[1] ?? '') });
-      else if ((m = /^(?:cria|criar|gera|gerar)\s+(?:uma\s+)?imagem\s+de\s+fundo\s+(?:com|de)\s+(.+)$/i.exec(part)) && m[1]) {
+      else if ((m = /^(?:troca|trocar|substitui|substituir|muda|mudar)\s+(?:a\s+)?imagem\s+(?:por|para)\s+(.+?)\.?$/i.exec(part)) && m[1]) {
+        // Texto livre: imagem NOVA no lugar da atual → geração (ou escolha, sem geração disponível).
+        const prompt = m[1].trim();
+        ops.push({ op: 'replaceImage', id: target, image: req.imageGeneration ? { kind: 'generate', prompt, aspect: '4:3' } : { kind: 'choose', hint: prompt } });
+      } else if ((m = /^(?:cria|criar|gera|gerar)\s+(?:uma\s+)?imagem\s+de\s+fundo\s+(?:com|de)\s+(.+)$/i.exec(part)) && m[1]) {
         // Texto livre: imagem de fundo NOVA → geração (ou escolha, se a geração não estiver disponível).
         const prompt = m[1].trim();
         ops.push({ op: 'setBackgroundImage', id: target, device: req.device, image: req.imageGeneration ? { kind: 'generate', prompt, aspect: '16:9' } : { kind: 'choose', hint: prompt } });
@@ -224,7 +228,8 @@ export class ServerImageGenerator implements ImageGenerator {
   ) {}
 
   async generate(req: Omit<AiImageRequest, 'contract'>, signal: AbortSignal): Promise<GeneratedImageResult> {
-    const { data, error } = await this.client.functions.invoke('ai-image', { body: { contract: 1, ...req }, signal });
+    // `client: 2`: este frontend aceita respostas sem custo (utilizadores comuns).
+    const { data, error } = await this.client.functions.invoke('ai-image', { body: { contract: 1, client: 2, ...req }, signal });
     if (signal.aborted) throw new ProposerError('Geração cancelada.', 'aborted');
     if (error) throw new ProposerError(await errorText(error, 'A imagem não foi gerada. Nada foi alterado.'), 'server');
     const r = AiImageResponse.safeParse(data);

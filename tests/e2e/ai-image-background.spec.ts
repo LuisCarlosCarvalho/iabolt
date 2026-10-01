@@ -172,3 +172,70 @@ test('[simulado] geração não configurada: o administrador vê o que configura
   await expect(userNotice).toContainText('Contacte o administrador');
   await expect(page.getByTestId('ai-image-configure')).toHaveCount(0);
 });
+
+test('[simulado] caso do print: bloco «Stationary» + «Troca a imagem por um livro de matemática.» → a fotografia desse cartão; gerar, aplicar, desfazer/refazer, guardar', async ({ page }) => {
+  test.setTimeout(240_000);
+  await offline(page);
+  await importCopy(page);
+  const imgs = canvas(page).locator('#portfolio img');
+  const srcs = await imgs.evaluateAll((els) => els.map((e) => e.getAttribute('src')));
+  const card = canvas(page).locator('#portfolio a.portfolio-item').first();
+  const cardBefore = await card.evaluate((el) => ({ href: el.getAttribute('href'), text: el.querySelector('.caption')?.textContent, n: el.querySelectorAll('*').length }));
+
+  // Seleciona-se a legenda (é o que cobre a fotografia, como no print: «Bloco»).
+  await canvas(page).locator('#portfolio .caption').first().click();
+  await expect(page.getByTestId('selected-name')).toHaveText('Bloco');
+  await page.getByTestId('ct-ai').click();
+  await page.getByTestId('ai-quick-input').fill('Troca a imagem por um livro de matemática.');
+  // Uma só candidata: mostrada antes de enviar, com miniatura.
+  const target = page.getByTestId('ai-quick-target');
+  await expect(target).toContainText('Vai alterar: Imagem · Stationary');
+  await expect(target.locator('img')).toHaveAttribute('src', srcs[0] ?? '');
+  await page.getByTestId('ai-quick-apply').click();
+
+  // Painel com a proposta (sem segundo pedido) e a geração por confirmar.
+  await expect(page.getByTestId('ai-scope-name')).toContainText('Imagem');
+  const confirm = page.getByRole('dialog', { name: 'Gerar imagem?' });
+  await expect(confirm).toContainText('«um livro de matemática»');
+  expect(await page.evaluate(() => window.__boltAiSent ?? 0)).toBe(1);
+  await page.getByTestId('ai-generate-confirm').click();
+  await expect(page.getByTestId('ai-image-chosen')).toContainText('SIMULADA');
+  expect(await imgs.first().getAttribute('src')).toBe(srcs[0]); // só proposta até aplicar
+  await page.getByTestId('ai-apply').click();
+  await expect(page.getByTestId('ai-applied')).toBeVisible();
+
+  await expect.poll(() => imgs.first().getAttribute('src')).not.toBe(srcs[0]);
+  const applied = await imgs.first().getAttribute('src');
+  // As outras imagens, a ligação, os textos e a estrutura do cartão não mudam.
+  expect((await imgs.evaluateAll((els) => els.map((e) => e.getAttribute('src')))).slice(1)).toEqual(srcs.slice(1));
+  expect(await card.evaluate((el) => ({ href: el.getAttribute('href'), text: el.querySelector('.caption')?.textContent, n: el.querySelectorAll('*').length }))).toEqual(cardBefore);
+
+  await page.getByTestId('undo').click();
+  await expect.poll(() => imgs.first().getAttribute('src')).toBe(srcs[0]);
+  await page.getByTestId('redo').click();
+  await expect.poll(() => imgs.first().getAttribute('src')).toBe(applied);
+  await page.getByTestId('save').click();
+  await expect(page.getByTestId('save-status')).toHaveText(SAVED);
+  await page.reload();
+  await expect.poll(() => canvas(page).locator('#portfolio img').first().getAttribute('src')).toBe(applied);
+});
+
+test('[simulado] bloco com várias imagens: escolha com miniaturas antes de enviar', async ({ page }) => {
+  test.setTimeout(240_000);
+  await offline(page);
+  await importCopy(page);
+  await canvas(page).locator('#portfolio .content-section-heading h2').click();
+  for (let i = 0; i < 3; i += 1) await page.getByTestId('ct-parent').click();
+  await expect(page.getByTestId('selected-name')).toHaveText('Secção');
+  await page.getByTestId('ct-ai').click();
+  await page.getByTestId('ai-quick-input').fill('Troca a imagem por um livro de matemática.');
+  const options = page.getByTestId('ai-quick-target-option');
+  await expect(options).toHaveCount(4);
+  await expect(options.first().locator('img')).toBeVisible();
+  await expect(page.getByTestId('ai-quick-apply')).toBeDisabled();
+  await options.nth(1).click();
+  await expect(page.getByTestId('ai-quick-target')).toContainText('Ice Cream');
+  await page.getByTestId('ai-quick-apply').click();
+  await expect(page.getByRole('dialog', { name: 'Gerar imagem?' })).toContainText('«um livro de matemática»');
+  await expect(page.getByTestId('ai-changes')).toContainText('Imagem');
+});

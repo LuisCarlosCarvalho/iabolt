@@ -473,6 +473,13 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ui-primary); }
 .ai-quick-close { margin-left: auto; }
 .ai-quick .textarea { min-height: 72px; resize: vertical; }
 .ai-quick-hint { margin: 0; font-size: 11.5px; }
+.ai-quick-targets { display: flex; flex-direction: column; gap: 6px; }
+.ai-quick-target-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.ai-quick-target-grid button { height: 56px; padding: 0; border: 2px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface-2); overflow: hidden; cursor: pointer; font-size: 11px; color: var(--ui-text); }
+.ai-quick-target-grid button.is-active { border-color: var(--ui-primary); box-shadow: var(--ui-focus); }
+.ai-quick-target-grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ai-quick-target-line { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.ai-quick-target-line img { width: 44px; height: 32px; object-fit: cover; border-radius: 4px; flex: none; }
 .ai-quick-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .ai-quick-result { margin: 0; padding-top: 8px; border-top: 1px solid var(--ui-border); font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .ai-quick-result p { margin: 0; }
@@ -764,3 +771,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ui-primary); }
 .ai-audit li { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: var(--ui-radius-sm); background: var(--ui-surface-2); font-size: 12.5px; }
 .ai-audit span { color: var(--ui-muted); overflow-wrap: anywhere; }
 .ai-audit small { color: var(--ui-faint); }
+
+/* Aviso de versão nova publicada (separadores abertos com a anterior). */
+.update-notice { position: fixed; z-index: 50; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; border-radius: var(--ui-radius); border: 1px solid var(--ui-primary-line); background: var(--ui-popover); color: var(--ui-text); box-shadow: var(--ui-shadow); max-width: calc(100vw - 32px); font-size: 13px; }

@@ -170,7 +170,8 @@ describe('[simulado] função ai-image (gerador falso)', () => {
     monthly_budget_usd: 25,
     prices: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
   });
-  const req = (over: Record<string, unknown> = {}) => JSON.stringify({ contract: 1, requestId: crypto.randomUUID(), projectId: 'p1', prompt: 'um parque infantil ao sol', aspect: '16:9', ...over });
+  // `client: 2`: o frontend atual (aceita respostas sem custo).
+  const req = (over: Record<string, unknown> = {}) => JSON.stringify({ contract: 1, client: 2, requestId: crypto.randomUUID(), projectId: 'p1', prompt: 'um parque infantil ao sol', aspect: '16:9', ...over });
   const deps = (gen: () => Promise<{ mime: 'image/jpeg'; base64: string; tokens: null }>, over: Partial<ImageDeps> = {}) => {
     const reserved: Reservation[] = [];
     const settled: Settlement[] = [];
@@ -204,6 +205,20 @@ describe('[simulado] função ai-image (gerador falso)', () => {
     };
     return d;
   };
+
+  it('separador aberto com o frontend anterior (sem «client»): utilizador comum recebe instrução para recarregar, ANTES de reservar; administrador continua', async () => {
+    const gen = async () => ({ mime: 'image/jpeg' as const, base64: 'QUJDREVGR0hJSktMTU5PUA==', tokens: null });
+    const old = { contract: 1, requestId: crypto.randomUUID(), projectId: 'p1', prompt: 'um parque infantil ao sol', aspect: '16:9' };
+    const user = deps(gen, { isAdmin: async () => false });
+    const r = await handleImage('Bearer ok', JSON.stringify(old), user);
+    expect(r).toMatchObject({ status: 409, body: { code: 'client_outdated' } });
+    expect(JSON.stringify(r.body)).toMatch(/recarregue a página.*Nada foi gerado nem cobrado/);
+    expect(user.reserved).toHaveLength(0);
+    expect(user.calls()).toBe(0);
+    const admin = deps(gen, { isAdmin: async () => true });
+    const ra = await handleImage('Bearer ok', JSON.stringify({ ...old, requestId: crypto.randomUUID() }), admin);
+    expect(ra).toMatchObject({ status: 200, body: { costUsd: 0.067 } });
+  });
 
   it('valores financeiros só para administradores: utilizador comum recebe a imagem sem custo e «limite» sem orçamento', async () => {
     const gen = async () => ({ mime: 'image/jpeg' as const, base64: 'QUJDREVGR0hJSktMTU5PUA==', tokens: null });

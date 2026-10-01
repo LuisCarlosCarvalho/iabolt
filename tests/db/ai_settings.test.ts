@@ -72,6 +72,8 @@ describe('Configurações de IA · autorização (PGlite)', () => {
     await expect(as(EVIL, 'update public.ai_settings set enabled = true')).rejects.toThrow(/permission denied/);
     await expect(as(EVIL, 'select * from vault.decrypted_secrets')).rejects.toThrow(/permission denied/);
     await expect(as(EVIL, 'select * from public.ai_provider_keys')).rejects.toThrow(/permission denied/);
+    // Preços, configuração (orçamento) e auditoria: nenhum acesso direto a um utilizador comum.
+    for (const t of ['ai_models', 'ai_settings', 'ai_settings_audit']) await expect(as(EVIL, `select * from public.${t}`)).rejects.toThrow(/permission denied/);
     for (const call of [
       `select public.ai_admin_get('${EVIL}')`,
       `select public.ai_admin_update('${EVIL}', 1, '{"enabled": true}'::jsonb)`,

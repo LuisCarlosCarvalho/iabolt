@@ -225,3 +225,34 @@ Os custos, preços, reservas, orçamento e o consumo por pedido ficam visíveis 
 1. Guardar a chave Google no passo 1.
 2. Escolher **Gemini 3.1 Flash Image** e ativar a geração.
 3. Gerar **uma** imagem pelo pedido do print. O custo estimado é de 0,067 USD por imagem (tarifa publicada), mais o pedido de edição, cuja reserva máxima o painel mostra ao administrador (cerca de 0,12 USD com o Claude Sonnet 5.5, segundo o print). O custo real costuma ser menor.
+
+## Bloco com imagem («Stationary»), compatibilidade de versões e publicação (01/10/2026)
+
+### Caso do print: bloco «Stationary» + «Troca a imagem por um livro de matemática.»
+
+- **Não estava coberto.** Com um bloco selecionado (a legenda que cobre a fotografia), o âmbito «Elemento» só abrange o próprio bloco. A imagem estava fora do âmbito.
+- **Agora, na janela rápida, ANTES de enviar** (`src/ai/imageTargets.ts`):
+  - se o pedido fala de uma imagem, procuram-se as imagens dentro do bloco. Se não houver, procura-se no antepassado mais próximo que as tenha, até à secção;
+  - os fundos entram quando o pedido fala de «fundo» ou quando não há imagens;
+  - **uma** candidata: «Vai alterar: Imagem · Stationary…», com miniatura;
+  - **várias**: escolha com miniaturas; «Alterar» só fica ativo depois de escolher.
+- O pedido segue para a imagem escolhida. Com gerador disponível, o painel abre com a **mesma** proposta (sem segunda chamada de edição), o âmbito mostra a imagem e a confirmação «Gerar imagem» já está aberta. A imagem gerada é proposta, aplica-se explicitamente e as outras imagens, a ligação, os textos e a estrutura do cartão não mudam.
+
+### Separadores abertos com versões anteriores
+
+- O pedido de imagem do frontend novo leva `client: 2`.
+- A função `ai-image` nova recusa os pedidos **sem** esse campo de utilizadores comuns, **antes** de reservar, com: «Esta página está numa versão anterior do Bolt IA. Espere por «Alterações guardadas» e recarregue a página (F5)… Nada foi gerado nem cobrado.» O frontend anterior exigia o custo, que o servidor já não lhes envia. Os administradores não são afetados. A proteção dos custos não é desativada.
+- Para publicações futuras: o build grava `version.json`. Um separador com uma versão anterior mostra «Há uma versão nova… recarregue», sem recarregar sozinho.
+- Ordem de publicação: **funções → frontend → migração**.
+  - Funções primeiro: o frontend novo envia `client: 2`, que o esquema estrito da função antiga recusaria.
+  - Migração por último: no frontend anterior, sem preço, as imagens ficariam desativadas para utilizadores comuns.
+
+### Testes desta ronda (locais, simulador)
+
+| Ficheiro | Resultado |
+| --- | --- |
+| `tests/unit/imageTargets.test.ts` | 3 testes: amostra real; legenda «Stationary» → 1 imagem; secção do portfólio → 4 |
+| `tests/e2e/ai-image-background.spec.ts` | 5 testes: caso do print com gerar, aplicar, desfazer/refazer, guardar e F5; escolha entre várias imagens; fundo do cabeçalho; utilizador comum; geração não configurada |
+| `tests/unit/aiProviders.test.ts` | separador antigo recusado antes de reservar |
+| `tests/db/ai_settings.test.ts` | sem acesso direto a `ai_models`/`ai_settings`/`ai_settings_audit` |
+| `tests/server/ai.financeiro.test.ts` | NOVO, Supabase real, sem chamadas pagas: conta A sem preços, sem acesso às tabelas, `ai-image` antiga recusada |

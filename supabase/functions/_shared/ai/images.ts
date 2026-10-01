@@ -14,9 +14,18 @@ export const AiImageRequest = z
     projectId: z.string().min(1).max(80),
     prompt: z.string().trim().min(3).max(1000),
     aspect: z.enum(IMAGE_ASPECTS),
+    /**
+     * Versão do frontend: 2 = aceita respostas SEM custo (utilizadores comuns). Sem este campo, é
+     * um separador aberto com o frontend anterior, que exige o custo na resposta.
+     */
+    client: z.literal(2).optional(),
   })
   .strict();
 export type AiImageRequest = z.infer<typeof AiImageRequest>;
+
+/** Mensagem para separadores abertos com a versão anterior (sem o campo `client`). */
+export const OUTDATED_CLIENT_MESSAGE =
+  'Esta página está numa versão anterior do Bolt IA. Espere por «Alterações guardadas» e recarregue a página (F5) para gerar imagens. Nada foi gerado nem cobrado.';
 
 export type ImageRequest = Pick<AiImageRequest, 'prompt' | 'aspect'>;
 

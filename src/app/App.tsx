@@ -7,6 +7,7 @@ import { ImportPage } from '../importers/ImportPage';
 import { TemplatesPage } from '../library/TemplatesPage';
 import { AppShell } from './AppShell';
 import { Link, useRoute } from './router';
+import { UpdateNotice } from './UpdateNotice';
 import { getSupabaseClient, LocalServicesProvider, readSupabaseConfig, ServerServicesProvider, useSupabaseSession, type SupabaseConfig } from './services';
 import { Button, Spinner, StatePanel } from './ui';
 
@@ -78,6 +79,7 @@ function ServerApp({ config }: { config: SupabaseConfig }) {
   return (
     <ServerServicesProvider client={client} session={session.session}>
       <Routes />
+      <UpdateNotice />
     </ServerServicesProvider>
   );
 }
@@ -88,6 +90,7 @@ export function App() {
   return (
     <LocalServicesProvider>
       <Routes />
+      <UpdateNotice />
     </LocalServicesProvider>
   );
 }
