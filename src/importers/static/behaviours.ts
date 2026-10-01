@@ -177,7 +177,15 @@ export function analyzeScript(code: string, origin: string): ScriptAnalysis {
       }
       const removes = [...body.matchAll(/(\w+)\.classList\.remove\(\s*['"`]([\w-]+)['"`]\s*\)/g)];
       if (removes.length) {
-        listeners.push({ event, selector, recognized: false, detail: `retira classes (${removes.map((r) => r[2]).join(', ')}) ao clicar` });
+        const byClass = new Map<string, string[]>();
+        for (const x of removes) {
+          const who = binds.get(x[1] ?? '') ?? x[1] ?? '?';
+          const list = byClass.get(x[2] ?? '') ?? [];
+          if (!list.includes(who)) list.push(who);
+          byClass.set(x[2] ?? '', list);
+        }
+        const what = [...byClass].map(([cls, who]) => `a classe «${cls}» de ${who.join(' e ')}`);
+        listeners.push({ event, selector, recognized: false, detail: `retira ${what.join('; ')}` });
         continue;
       }
     }

@@ -68,7 +68,10 @@ test('ZIP do Stylish Portfolio: importar, pré-visualizar, editar, guardar, reab
   await expect(page.getByTestId('import-items')).toContainText('Abrir/fechar pelo runtime do Bolt');
   await expect(page.getByTestId('import-items')).toContainText('Mostrar depois de rolar');
   await expect(page.getByTestId('import-items')).toContainText('Mapa incorporado');
-  await expect(page.getByTestId('import-items')).toContainText('Folha CSS oficial (fontes de ícones)');
+  await expect(page.getByTestId('import-items')).toContainText('Folha CSS oficial da mesma versão (fontes de ícones)');
+  // O que torna a importação parcial é dito pelo nome; as remoções sem efeito ficam nas notas.
+  await expect(page.getByText('e que há elementos não suportados ou parciais: Ícone do separador (favicon)')).toBeVisible();
+  await expect(page.getByTestId('import-notes')).toContainText('removido sem perda funcional');
   await expect(page.getByTestId('import-items')).toContainText('Ícone do separador (favicon)');
   await expect(page.getByTestId('import-items')).toContainText('Folha externa fonts.googleapis.com');
   await expect(page.getByTestId('import-assets').locator('li', { hasText: 'Guardada ao importar' })).toHaveCount(6);
@@ -129,6 +132,14 @@ test('ZIP do Stylish Portfolio: importar, pré-visualizar, editar, guardar, reab
   await expect(c.locator('img[src^="blob:"]')).toHaveCount(0);
   await expect(c.locator('img[src^="data:image/"]')).toHaveCount(4);
   expect(await backgroundLoads(c, '.masthead')).toBe(true);
+  // Mapa no canvas: o elemento é o próprio <iframe> e ocupa o contentor, como no site (30rem).
+  const mapBoxes = await c.locator('.map').evaluate((el) => {
+    const f = el.querySelector('iframe');
+    return { box: Math.round(el.getBoundingClientRect().height), frame: Math.round(f?.getBoundingClientRect().height ?? 0), wrapped: f?.parentElement !== el };
+  });
+  expect(mapBoxes.wrapped).toBe(false);
+  expect(mapBoxes.box).toBeGreaterThan(300);
+  expect(mapBoxes.frame).toBe(mapBoxes.box);
   // A folha importada não aparece nas camadas.
   await page.getByTestId('tool-layers').click();
   await expect(page.getByTestId('layer-row').filter({ hasText: /stylesheet|Folha/i })).toHaveCount(0);

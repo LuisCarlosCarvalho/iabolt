@@ -153,6 +153,8 @@ class Ctx {
   readonly missing = new Map<string, MissingFile>();
   readonly remoteImages = new Map<string, Set<string>>();
   readonly fonts = new Map<string, FontEntry>();
+  /** Primeiro ficheiro de cada família externa (verificado no fim da análise). */
+  readonly fontFiles = new Map<string, string>();
   readonly notices = new Set<string>();
   readonly localCss = new Map<string, Promise<string>>();
   readonly remoteCss = new Map<string, Promise<{ css: string } | { error: string }>>();
@@ -298,16 +300,19 @@ async function remoteCss(url: string, ctx: Ctx, depth = 0): Promise<{ css: strin
   }
   const result = await pending;
   if ('css' in result) {
-    for (const m of result.css.matchAll(/@font-face\s*\{[^}]*font-family\s*:\s*["']?([^;"'}]+)["']?/gi)) {
-      const family = (m[1] ?? '').trim();
+    for (const m of result.css.matchAll(/@font-face\s*\{[^}]*\}/gi)) {
+      const block = m[0];
+      const family = (/font-family\s*:\s*["']?([^;"'}]+)["']?/i.exec(block)?.[1] ?? '').trim();
+      const file = /url\(\s*["']?(https?:[^"')]+)["']?\s*\)/i.exec(block)?.[1];
       if (family && !ctx.fonts.has(family)) {
         ctx.fonts.set(family, {
           family,
           source: `${hostOf(abs)} (externa)`,
           license: knownLicense(abs),
-          status: 'carregada',
-          detail: 'Os ficheiros da fonte continuam no servidor de origem; precisam de rede para aparecer.',
+          status: 'nao-carregada',
+          detail: 'por verificar',
         });
+        if (file) ctx.fontFiles.set(family, file);
       }
     }
   }
@@ -498,7 +503,7 @@ async function processPage(plan: PagePlan, plans: Map<string, PagePlan>, ctx: Ct
         const res = await remoteCss(fa.css, ctx);
         if ('css' in res) {
           cssParts.push(`/* origem: ${fa.css} (equivalente CSS de ${src}) */\n${res.css}`);
-          r.add('convertido', fa.label, 'Folha CSS oficial (fontes de ícones)', fa.detail);
+          r.add('convertido', fa.label, 'Folha CSS oficial da mesma versão (fontes de ícones)', fa.detail);
         } else {
           r.add('nao-suportado', fa.label, 'Removido; ícones sem desenho', `${res.error}. A folha equivalente (${fa.css}) não pôde ser obtida.`);
         }
@@ -510,7 +515,15 @@ async function processPage(plan: PagePlan, plans: Map<string, PagePlan>, ctx: Ct
         r.add('nao-suportado', known.label, 'Removido; ícones sem desenho', 'Os kits do Font Awesome só funcionam com o script da conta; não há equivalente em CSS público.');
         continue;
       }
-      r.add(known.kind === 'other' ? 'nao-suportado' : 'convertido', `Script externo: ${known.label}`, 'Removido (não é executado)', known.kind === 'bootstrap' ? 'Ver abaixo os componentes do Bootstrap usados pela página.' : `${hostOf(src)}`);
+      // Bootstrap: o efeito da remoção depende dos componentes usados (decidido mais abaixo).
+      if (known.kind !== 'bootstrap') {
+        const why: Record<string, string> = {
+          jquery: 'O que dependia do jQuery deixa de funcionar; os comportamentos reconhecidos aparecem noutras linhas.',
+          analytics: 'As estatísticas de visitas deixam de ser recolhidas por este script.',
+          other: `Script de ${hostOf(src)}: o que ele fazia não é reproduzido.`,
+        };
+        r.add('nao-suportado', `Script externo: ${known.label}`, 'Removido (não é executado)', why[known.kind] ?? '');
+      }
       ctx.report.remove(`<script src="${src}">`);
       continue;
     }
@@ -547,7 +560,9 @@ async function processPage(plan: PagePlan, plans: Map<string, PagePlan>, ctx: Ct
     for (const u of bootstrapUses(doc).filter((x) => x.kind !== 'collapse')) {
       r.add('nao-suportado', `Bootstrap: ${u.kind}`, 'Sem comportamento (o JavaScript do Bootstrap não é executado)', 'O aspeto mantém-se; a interação não.', u.count);
     }
-    if (!collapses && bootstrapUses(doc).length === 0) r.note(`${from}: o JavaScript do Bootstrap foi removido sem perda — a página não usa componentes ativados por data-bs-*.`);
+    const uses = bootstrapUses(doc);
+    if (!collapses && uses.length === 0) r.note(`${from}: o script do Bootstrap (JavaScript) foi removido sem perda funcional — a página não usa componentes ativados por data-bs-* (o CSS do Bootstrap que vem no arquivo mantém-se).`);
+    else r.add(uses.some((u) => u.kind !== 'collapse') ? 'parcial' : 'convertido', 'Script externo: Bootstrap (JavaScript)', 'Removido (não é executado)', `Componentes usados pela página: ${uses.map((u) => `${u.kind} (${u.count})`).join(', ')}; ver as linhas «Bootstrap: …».`);
   }
 
   // ---------------------------------------------------------------- comentários (avisos de licença preservados)
@@ -573,7 +588,7 @@ async function processPage(plan: PagePlan, plans: Map<string, PagePlan>, ctx: Ct
         el.setAttribute('loading', 'lazy');
         el.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
         if (!el.getAttribute('title')) el.setAttribute('title', 'Mapa');
-        r.add('convertido', 'iframe do Google Maps', 'Mapa incorporado (domínio permitido)', 'Mostra o mapa do Google como no original (carrega conteúdo e cookies do Google). Editável pelo endereço; os outros iframes não são aceites.');
+        r.add('convertido', 'iframe do Google Maps', 'Mapa incorporado (domínio permitido)', 'O mapa do Google é mostrado como no original (precisa de rede; carrega conteúdo e cookies do Google). No editor não recebe cliques: selecione o contentor ou use as camadas. Os outros iframes não são aceites.');
       } else {
         r.add('nao-suportado', `iframe ${hostOf(src)}`, 'Removido', `Só são aceites mapas do Google incorporados. Endereço: ${src.slice(0, 120)}`);
         ctx.report.remove(`<iframe src="${src.slice(0, 80)}">`);
@@ -837,16 +852,37 @@ export async function convertStaticSite(site: SiteFiles, fileName: string, fileS
   for (const { b, count } of behaviourLog.values()) {
     if (b.kind === 'toggle') {
       if (count) r.add('convertido', `Clique em ${b.trigger} (${b.origin})`, 'Abrir/fechar pelo runtime do Bolt', `Alterna «${b.targetClass}» em ${b.target}${b.selfClass ? ` e «${b.selfClass}» no botão` : ''}${b.swap ? `; troca o ícone ${b.swap[0]} ↔ ${b.swap[1]}` : ''}.`, count);
-      else r.add('convertido', `Clique em ${b.trigger} (${b.origin})`, 'Removido (sem efeito nesta página)', 'Nenhum elemento corresponde ao botão ou ao alvo.');
+      else r.note(`${b.origin}: o clique em «${b.trigger}» não tem efeito nesta página (nenhum elemento corresponde ao botão ou ao alvo); removido sem perda funcional.`);
     } else if (count) {
       r.add('convertido', `Ao rolar: ${b.target} (${b.origin})`, 'Mostrar depois de rolar, pelo runtime do Bolt', `Aparece depois de ${b.threshold} px${b.effect === 'fade' ? ', com transição de opacidade' : ''}.`, count);
-    } else r.add('convertido', `Ao rolar: ${b.target} (${b.origin})`, 'Removido (sem efeito nesta página)', 'Nenhum elemento corresponde.');
+    } else r.note(`${b.origin}: o efeito ao rolar em «${b.target}» não tem efeito nesta página (nenhum elemento corresponde); removido sem perda funcional.`);
   }
   for (const l of listenerLog.filter((x) => !x.recognized)) {
     const matches = l.selector ? [...plans.values()].some((p) => safeMatch(p.doc, l.selector ?? '')) : true;
-    if (!matches) r.add('convertido', `Evento «${l.event}» em ${l.selector}`, 'Removido (sem efeito nesta página)', `${l.detail}; nenhum elemento da página corresponde a ${l.selector}.`);
+    if (!matches) r.note(`${l.detail.split(':')[0]}: o evento «${l.event}» em «${l.selector}» (${l.detail.split(': ').slice(1).join(': ')}) não tem efeito nesta página — nenhum elemento corresponde; removido sem perda funcional.`);
     else r.add('nao-suportado', `Evento «${l.event}»${l.selector ? ` em ${l.selector}` : ''}`, 'Sem equivalente (script não executado)', l.detail);
   }
+
+  // ---------------------------------------------------------------- fontes externas: o ficheiro existe?
+  await Promise.all(
+    [...ctx.fonts.values()].map(async (f) => {
+      const file = ctx.fontFiles.get(f.family);
+      if (!file) {
+        f.detail = 'Declarada sem ficheiro externo identificável; não verificada.';
+        return;
+      }
+      const name = file.split('/').pop()?.split('?')[0] ?? file;
+      try {
+        const res = await deps.fetch(file, { mode: 'cors', credentials: 'omit' });
+        if (res.ok) {
+          f.status = 'carregada';
+          f.detail = `Ficheiro acessível no servidor de origem (verificado: ${name}). Precisa de rede; o browser só o descarrega se a página usar esta família.`;
+        } else f.detail = `O servidor de origem respondeu ${res.status} para ${name}; é usada a fonte de recurso.`;
+      } catch (e) {
+        f.detail = `Não foi possível verificar ${name} (${e instanceof Error ? e.message : String(e)}); se não carregar, é usada a fonte de recurso.`;
+      }
+    }),
+  );
 
   // ---------------------------------------------------------------- recursos, avisos e notas
   for (const s of site.skipped) r.add('nao-suportado', `Ficheiro ignorado: ${s.path}`, 'Não lido', s.reason);

@@ -7,7 +7,7 @@
 | **Implementado** | Leitor ZIP próprio, páginas, CSS literal por página, recursos locais, dependências externas, comportamentos dos scripts no runtime, mapa incorporado, relatório, pré-visualização em 3 larguras, HTML avulso com ficheiros em falta, duplicar página importada (corrigido). |
 | **Testado (local)** | Unitários (17, `tests/unit/staticImport.test.ts`), E2E sem rede (2, `tests/e2e/import-static.spec.ts`), comparação visual com rede real (1, `tests/e2e/import-static.visual.spec.ts`, `BOLT_VISUAL=1`), regressões: suite completa. |
 | **Validado no servidor (Supabase)** | **Pendente.** Os testes correram em modo local (IndexedDB). A cópia das imagens e dos fundos para o Storage usa a mesma via das outras importações (`store.upload`), mas **não foi exercitada** com esta importação: as referências permanentes (`bolt-asset:`) depois de F5, ao reabrir, no template e na cópia independente estão por verificar no servidor. |
-| **Não validado** | O mapa dentro do iframe isolado da pré-visualização da importação (ver «Mapa»). Os comportamentos do JavaScript original face aos do runtime não foram comparados visualmente (a comparação foi feita com o JavaScript original desligado). |
+| **Não validado** | Os comportamentos do JavaScript original face aos do runtime não foram comparados visualmente (a comparação foi feita com o JavaScript original desligado). O mapa só foi verificado com rede real no teste visual (não faz parte da execução normal, que corre sem rede). |
 | **Publicado** | **Não.** Nada foi enviado para o Git nem para a Vercel. |
 
 Nenhuma alteração remota é necessária: a tabela `import_records` já aceitava os formatos `html` e `zip`, e não há migrações novas.
@@ -120,7 +120,12 @@ O único iframe aceite é o mapa incorporado do Google:
 
 O mapa fica com `https`, `loading="lazy"` e um título. A CSP da pré-visualização passou a ter `frame-src https://maps.google.com https://www.google.com`. O relatório diz que o mapa carrega conteúdo e cookies do Google.
 
-**O que foi observado:** o Google carregou o mapa quando o documento convertido foi aberto **numa página normal** (teste visual, fora do iframe isolado). **O que não foi testado:** o mapa dentro do iframe isolado da pré-visualização da importação (`sandbox="allow-scripts"`, origem opaca), nem no canvas do editor. Nos testes E2E, sem rede, o Google não responde e o mapa não aparece. Não se declara o mapa validado nesses contextos.
+**Verificado com rede real** (teste visual, `BOLT_VISUAL=1`, 01/10, depois da correção):
+- **pré-visualização isolada da importação** (`sandbox="allow-scripts"`, origem opaca): o Google carrega o mapa (frame `www.google.com/maps/embed` com conteúdo; captura `importacao-preview-mapa.png`); o teste falha se não carregar;
+- **canvas do editor**: o mapa ocupa o contentor (30rem), como no site (captura `importacao-editor-mapa.png`);
+- página normal (comparação visual): carrega (`*-bolt-mapa.png`).
+
+**Correção (01/10):** no canvas, o motor desenhava o mapa como `<div><iframe></div>`; o CSS do site (`.map iframe { height: 100% }`) ficava sem efeito e o mapa aparecia com cerca de 85 px de altura e um espaço vazio por baixo. O elemento do canvas passou a ser o próprio `<iframe>`, como no HTML exportado (o E2E sem rede verifica a altura). No editor o mapa não recebe cliques (seleciona-se o contentor ou pelas camadas). Sem rede (testes E2E normais), o Google não responde e o mapa fica vazio.
 
 Os outros iframes são removidos e indicados no relatório.
 
@@ -135,7 +140,7 @@ A cópia está em `amostra/startbootstrap-stylish-portfolio-gh-pages.zip`. É ig
 | Menu lateral | Abre e fecha pelo runtime, com a troca de ícone `fa-bars` ↔ `fa-xmark`, na pré-visualização e no canvas (E2E). |
 | Âncoras e voltar ao topo | «About» desloca até à secção. O botão aparece depois de 100 px e volta ao topo (E2E). |
 | Ícones | Simple Line Icons: CSS preservado. Font Awesome: JS convertido em CSS oficial; o alinhamento e a largura dos ícones podem diferir ligeiramente. |
-| Mapa | Mantido como mapa incorporado (verificado no documento). O Google carregou-o numa renderização fora do iframe isolado (captura `*-bolt-mapa.png`); no iframe da pré-visualização da importação **não foi testado**. |
+| Mapa | Mantido como mapa incorporado. Com rede real, carrega na pré-visualização isolada da importação, no canvas (altura corrigida) e numa página normal (teste visual). |
 | Favicon | Não suportado (indicado no relatório). Por isso a importação é **parcial** e pede aceitação explícita. |
 | Bootstrap JS | Removido sem perda: a página não usa `data-bs-*` (nota no relatório). |
 
@@ -157,7 +162,33 @@ Uma correção resultou desta comparação. Os espaços entre elementos *inline*
 
 As capturas são geradas por `BOLT_VISUAL=1 npx playwright test tests/e2e/import-static.visual.spec.ts` e ficam em `%TEMP%\bolt-ia-playwright\test-results\…`, com `resumo.json`.
 
+## Revisão do relatório a partir dos prints (01/10)
+
+Reprodução com o mesmo ZIP e rede real: antes 81 preservado / 10 convertido / 0 parcial / 1 não suportado; depois 81 / 8 / 0 / 1.
+
+| Mensagem encontrada | Tipo | Causa | Correção ou limitação |
+| --- | --- | --- | --- |
+| «Não suportado · Ícone do separador (favicon)» | comportamento ainda não suportado | o Bolt IA não tem ícone do site por projeto | mantido (sem perda no conteúdo da página; o separador do browser fica sem ícone). É a única causa da importação parcial e passa a ser nomeada na confirmação |
+| «Compreendo que a importação é parcial e que há elementos convertidos parcialmente ou não suportados» | aviso genérico | o texto só contava, não dizia o quê | passa a nomear: «…não suportados ou parciais: Ícone do separador (favicon)» |
+| «Script externo: Bootstrap (JavaScript) · Convertido · Ver abaixo os componentes do Bootstrap usados pela página» | defeito do relatório | contava como «convertido» uma remoção e remetia para uma lista que não existia | sem componentes `data-bs-*`: nota «removido sem perda funcional (o CSS do Bootstrap mantém-se)»; com componentes: linha «parcial» que os enumera |
+| «Evento «click» em #sidebar-wrapper .js-scroll-trigger · Convertido · retira classes (active, active)» | aviso informativo sem perda funcional (mal classificado) | contava como «convertido»; classes repetidas e sem dizer de onde | passa a nota: «retira a classe «active» de #sidebar-wrapper e .menu-toggle … nenhum elemento corresponde; removido sem perda funcional» |
+| «Fontes (7)» todas «Carregada» | defeito do relatório | «carregada» só significava declarada na folha externa | o primeiro ficheiro de cada família é obtido: «carregada» só se responder; senão «não carregada» com o motivo |
+| «Font Awesome … O aspeto é equivalente» | afirmação não comprovada | não foi comparado com o SVG do script a correr | texto corrigido: mesmos ícones por fontes; tamanho e alinhamento podem diferir (não comparado) |
+| «iframe do Google Maps · Mostra o mapa do Google como no original» | dependência externa; defeito no editor | no canvas o mapa ficava com ~85 px (ver «Mapa») | canvas corrigido; mapa verificado na pré-visualização isolada com rede real; o texto diz que precisa de rede e que no editor não recebe cliques |
+| «Folha externa cdnjs / fonts.googleapis · os ficheiros que ela refere ficam no servidor de origem» | dependência externa | fontes e ícones servidos pelos CDN | mantido (informativo; precisa de rede) |
+| «Removido por segurança (2)» | informativo | `bootstrap.bundle.min.js` e `js/scripts.js` não executados | mantido |
+
 ## Testes executados (01/10)
+
+**Depois da revisão dos prints (todos locais; nada no Supabase real):**
+
+| Comando | Resultado |
+| --- | --- |
+| `npm run check` | exit 0 em typecheck, lint, testes (21 ficheiros / 205), build e `git diff --check` |
+| `npx playwright test tests/e2e/import-static.spec.ts tests/e2e/import.spec.ts` | 6 passaram (ZIP, HTML avulso, regressões Studio e Elementor), incluindo a altura do mapa no canvas e o texto da importação parcial |
+| `BOLT_VISUAL=1 … import-static.visual.spec.ts` (rede real) | 1 passou: 0,03 / 0,04 / 0,08 % de píxeis diferentes, 0 px de desvio; mapa carregado na pré-visualização isolada |
+
+**Primeira entrega:**
 
 | Comando | Resultado |
 | --- | --- |
@@ -185,7 +216,7 @@ O teste E2E da amostra percorre:
 - Os favicons, `<meta>` e dados estruturados não são importados.
 - O estilo inline no `<body>` passa para a folha. Os estilos inline dos elementos passam a regras `#id` do motor e deixam de ser inline (só muda algo se o CSS do site usar `!important` sobre eles).
 - Folhas externas sem CORS ficam como `@import` no início da folha, o que pode mudar a ordem da cascata. O relatório diz quais.
-- Mapa: só foi observado a carregar numa renderização fora do iframe isolado. Dentro do iframe da pré-visualização da importação (origem opaca) e no canvas não foi testado.
+- Mapa: precisa de rede e carrega conteúdo e cookies do Google; só é verificado no teste visual (rede real). No editor não recebe cliques.
 - O registo do original guarda o manifesto e os ficheiros de texto (até cerca de 4,5 MB), não o ZIP binário. As imagens usadas ficam no armazenamento.
 - **Duplicar uma página importada: corrigido.** Na cópia, os seletores com ids da folha literal, o id do `<body>`, as âncoras e os atributos de comportamento passam aos ids da cópia (teste unitário).
 - **Duplicar um elemento: ainda perde regras da folha importada.** A cópia recebe ids novos; as regras da folha literal que visam o elemento (ou os seus descendentes) **por id** não a acompanham. As regras por classe continuam a aplicar-se. Correção pendente (abaixo).

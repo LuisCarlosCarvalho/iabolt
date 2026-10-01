@@ -214,6 +214,8 @@ function Review({
   const copiable = report.assets.filter((a) => a.status === 'disponivel' && !a.local);
   const local = report.assets.filter((a) => a.status === 'disponivel' && a.local);
   const missingFiles = report.missingFiles ?? [];
+  // O que torna a importação parcial, pelo nome (não só a contagem).
+  const limited = report.items.filter((i) => i.status === 'parcial' || i.status === 'nao-suportado').map((i) => `${i.source}${i.count > 1 ? ` (${i.count})` : ''}`);
   const partial = unresolved.length > 0 || missingFiles.length > 0 || report.totals.parcial > 0 || report.totals['nao-suportado'] > 0;
 
   const confirm = async (e: FormEvent) => {
@@ -293,7 +295,7 @@ function Review({
               Compreendo que a importação é parcial
               {unresolved.length > 0 ? ` (${unresolved.length} imagem(ns) em falta ou fora do armazenamento)` : ''}
               {missingFiles.length > 0 ? ` (${missingFiles.length} ficheiro(s) referido(s) em falta)` : ''}
-              {report.totals.parcial + report.totals['nao-suportado'] > 0 ? ` e que há elementos convertidos parcialmente ou não suportados` : ''}. O ficheiro original fica
+              {limited.length > 0 ? ` e que há elementos não suportados ou parciais: ${limited.join('; ')}` : ''}. O ficheiro original fica
               guardado para recuperação.
             </span>
           </label>

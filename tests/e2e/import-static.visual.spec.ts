@@ -117,6 +117,15 @@ test('comparação com o original isolado: computador, tablet e telemóvel', asy
   await expect(page.getByTestId('import-review')).toBeVisible({ timeout: 120_000 });
   await expect(page.getByTestId('import-preview')).toBeVisible({ timeout: 60_000 });
   const bolt = (await page.getByTestId('import-preview').getAttribute('srcdoc')) ?? '';
+  // Mapa DENTRO da pré-visualização isolada da importação (sandbox, origem opaca).
+  await page.frameLocator('[data-testid="import-preview"]').locator('.map').scrollIntoViewIfNeeded();
+  await expect
+    .poll(async () => {
+      const lens = await Promise.all(page.frames().filter((f) => /google\.com\/maps\/embed/.test(f.url())).map((f) => f.evaluate(() => document.body?.innerHTML.length ?? 0).catch(() => 0)));
+      return Math.max(0, ...lens);
+    }, { timeout: 30_000 })
+    .toBeGreaterThan(10_000);
+  await page.getByTestId('import-preview').screenshot({ path: info.outputPath('importacao-preview-mapa.png') });
   const report = await page.getByTestId('import-items').innerText();
 
   const summary: Record<string, unknown> = { report };
@@ -167,4 +176,19 @@ test('comparação com o original isolado: computador, tablet e telemóvel', asy
     info.annotations.push({ type: label, description: JSON.stringify(summary[label]) });
   }
   writeFileSync(info.outputPath('resumo.json'), JSON.stringify(summary, null, 2));
+
+  // Capturas da importação: relatório (com fontes abertas) e editor depois de confirmar.
+  await page.getByText(/^Fontes \(/).click();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: info.outputPath('importacao-relatorio.png'), fullPage: true });
+  await page.getByTestId('import-accept-partial').check();
+  await page.getByTestId('import-confirm').click();
+  await expect(page).toHaveURL(/\/projetos\/[0-9a-f-]{36}$/, { timeout: 120_000 });
+  const c = page.frameLocator('.gjs-frame');
+  await expect(c.locator('h1')).toBeVisible();
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: info.outputPath('importacao-editor.png') });
+  await c.locator('.map').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(5000);
+  await page.screenshot({ path: info.outputPath('importacao-editor-mapa.png') });
 });

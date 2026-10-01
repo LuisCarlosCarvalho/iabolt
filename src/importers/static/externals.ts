@@ -16,7 +16,7 @@ export interface ScriptConversion {
 /** Font Awesome em JavaScript (SVG) → a folha CSS com fontes de ícones da mesma versão. */
 export function fontAwesomeCssFor(src: string): ScriptConversion | null {
   const detail =
-    'O script desenha os ícones em SVG; foi substituído pela folha CSS oficial da mesma versão (fontes de ícones). O aspeto é equivalente; o alinhamento vertical e a largura dos ícones podem diferir ligeiramente.';
+    'O script original desenha os ícones em SVG; foi substituído pela folha CSS oficial da mesma versão, que desenha os mesmos ícones com fontes. Tamanho e alinhamento podem diferir ligeiramente do SVG (não comparado visualmente com o script a correr).';
   const license = 'Font Awesome Free: ícones CC BY 4.0, fontes SIL OFL 1.1, código MIT';
   const official = /^(?:https?:)?\/\/use\.fontawesome\.com\/releases\/(v[\d.]+)\/js\/(all|fontawesome|solid|regular|brands)(?:\.min)?\.js/i.exec(src);
   if (official?.[1] && official[2]) return { css: `https://use.fontawesome.com/releases/${official[1]}/css/${official[2]}.css`, label: `Font Awesome ${official[1]} (JavaScript)`, detail, license };

@@ -261,10 +261,14 @@ describe('ZIP real: Start Bootstrap «Stylish Portfolio»', () => {
     expect(items).toMatch(/convertido\|Clique em \.menu-toggle \(js\/scripts\.js\)\|Abrir\/fechar pelo runtime do Bolt/);
     expect(items).toMatch(/convertido\|Ao rolar: \.scroll-to-top \(js\/scripts\.js\)\|Mostrar depois de rolar/);
     // O ouvinte de «.js-scroll-trigger» não tem elementos na página: dito explicitamente.
-    expect(items).toMatch(/convertido\|Evento «click» em #sidebar-wrapper \.js-scroll-trigger\|Removido \(sem efeito nesta página\)/);
     expect(items).toMatch(/convertido\|Font Awesome v6\.3\.0 \(JavaScript\)\|Folha CSS oficial/);
-    expect(items).toMatch(/convertido\|Script externo: Bootstrap \(JavaScript\)\|Removido/);
-    expect(a.report.notes.join(' ')).toMatch(/não usa componentes ativados por data-bs-\*/);
+    // Remoções sem efeito nesta página: notas (sem perda funcional), não contam como «convertido».
+    expect(items).not.toMatch(/js-scroll-trigger|Script externo: Bootstrap/);
+    const notes = a.report.notes.join('\n');
+    expect(notes).toMatch(/o script do Bootstrap \(JavaScript\) foi removido sem perda funcional — a página não usa componentes ativados por data-bs-\*/);
+    expect(notes).toContain('js/scripts.js: o evento «click» em «#sidebar-wrapper .js-scroll-trigger» (retira a classe «active» de #sidebar-wrapper e .menu-toggle) não tem efeito nesta página');
+    expect(a.report.totals.convertido).toBe(8);
+    expect(a.report.totals['nao-suportado']).toBe(1);
     expect(a.report.removed.join(' ')).toMatch(/script js\/scripts\.js \(não executado\)/);
   });
 
@@ -310,6 +314,8 @@ describe('ZIP real: Start Bootstrap «Stylish Portfolio»', () => {
     const items = a.report.items.map((i) => `${i.status}|${i.source}|${i.target}`);
     expect(items.some((i) => i.startsWith('parcial|Folha externa cdnjs.cloudflare.com|Mantida como @import'))).toBe(true);
     expect(items.some((i) => i.startsWith('nao-suportado|Font Awesome v6.3.0 (JavaScript)'))).toBe(true);
+    // Sem folhas, não há fontes declaradas para afirmar como carregadas.
+    expect(a.report.fonts.filter((f) => f.status === 'carregada')).toEqual([]);
   });
 });
 
@@ -464,6 +470,20 @@ describe('Limites e caminhos do ZIP', () => {
     expect(resolveRef('blog/post.html', '/img/x.png')).toBe('img/x.png');
     expect(resolveRef('a.html', '../../x.png')).toBeNull();
     expect(resolveRef('a.html', 'img/f%20g.png')).toBe('img/f g.png');
+  });
+});
+
+describe('Fontes externas: o ficheiro é verificado, não só declarado', () => {
+  it('carregada só quando o ficheiro responde; senão o motivo fica no relatório', async () => {
+    const files: Record<string, string> = { ...REMOTE_CSS_FIXTURES, 'https://fonts.gstatic.com/s/sourcesanspro/v1/x.woff2': 'woff2 de teste' };
+    const { deps } = depsWith(files);
+    const a = await analyzeImport(sample(), deps);
+    const byFamily = Object.fromEntries(a.report.fonts.map((f) => [f.family, f]));
+    expect(byFamily['Source Sans Pro']?.status).toBe('carregada');
+    expect(byFamily['Source Sans Pro']?.detail).toContain('verificado: x.woff2');
+    expect(byFamily['Font Awesome 6 Free']?.status).toBe('nao-carregada');
+    expect(byFamily['Font Awesome 6 Free']?.detail).toMatch(/Não foi possível verificar fa-solid-900\.woff2/);
+    expect(byFamily['simple-line-icons']?.status).toBe('nao-carregada');
   });
 });
 

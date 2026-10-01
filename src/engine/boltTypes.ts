@@ -129,6 +129,12 @@ export function boltTypesPlugin(editor: Editor): void {
     },
   });
 
+  // Mapa incorporado: no canvas, o motor desenhava <div><iframe></div>, e o CSS do site (ex.:
+  // `.map iframe { height: 100% }`) ficava sem efeito. Com a vista base, o elemento do canvas é o
+  // próprio <iframe>, como no HTML exportado. Não recebe cliques no editor (bolt-runtime.css):
+  // seleciona-se o contentor ou pelas camadas.
+  editor.Components.addType('map', { extendView: 'default' });
+
   // Nomes legíveis no destaque do canvas, derivados do modelo (sem os gravar).
   for (const type of [
     'wrapper', 'default', 'text', 'image', 'link', 'bolt-button', 'bolt-section', 'bolt-navbar', 'bolt-footer', 'bolt-container', 'bolt-columns', 'bolt-column',
