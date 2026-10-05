@@ -35,6 +35,7 @@ export interface QuickEditInput {
   editor: Editor;
   proposer: Proposer;
   projectId: string;
+  /** Ecrã visível no canvas (para verificar que os estilos aplicados se veem). O pedido é sempre sobre a base. */
   device: DeviceId;
   instruction: string;
   component: Component;
@@ -46,7 +47,10 @@ export interface QuickEditInput {
 }
 
 export async function runQuickEdit(input: QuickEditInput): Promise<QuickEditResult> {
-  const { editor, proposer, projectId, device, component, signal } = input;
+  const { editor, proposer, projectId, component, signal } = input;
+  // Responsivo automático: base (todos os ecrãs) + ajustes de tablet/telemóvel propostos pelo assistente.
+  const device: DeviceId = 'desktop';
+  const view = input.device;
   const instruction = input.instruction.trim();
   if (!instruction) return { kind: 'error', message: 'Escreva o que quer alterar.' };
   if (isEditingText(editor)) return { kind: 'error', message: EDITING_MESSAGE };
@@ -102,5 +106,5 @@ export async function runQuickEdit(input: QuickEditInput): Promise<QuickEditResu
     return { kind: 'error', message: 'A aplicação falhou e o documento foi reposto como estava. Nada foi alterado.' };
   }
   await canvasSettled(editor);
-  return { kind: 'applied', changes, hidden: hiddenStyleChanges(editor, ops, device), summary: proposal.summary, ops };
+  return { kind: 'applied', changes, hidden: hiddenStyleChanges(editor, ops, view), summary: proposal.summary, ops };
 }

@@ -3,7 +3,10 @@ import { expect, test, type Page } from '@playwright/test';
 /**
  * [simulado] Painel «Configurações de IA» no browser, em modo local: a mesma lógica da função
  * ai-admin corre em memória com fornecedores SIMULADOS. Nada sai do browser. A autorização no
- * servidor e o cofre estão provados em tests/db/ e tests/unit/aiAdmin.test.ts.
+ * servidor, o cofre e a escolha automática estão provados em tests/db/ e tests/unit/aiAdmin.test.ts.
+ *
+ * Cada fornecedor: chave + um botão «Ativo». Para cada função (edição, imagens), o servidor usa o
+ * melhor fornecedor ativo com chave reconhecida.
  */
 const KEY_A = 'sk-teste-chave-valida-000000000000AAAA';
 const KEY_BAD = 'sk-teste-chave-invalida-00000000000XXXX';
@@ -42,54 +45,57 @@ async function saveKey(page: Page, provider: string, key: string) {
   await page.getByTestId(`ai-key-save-${provider}`).click();
 }
 
-test('[simulado] configurar a IA pelo painel: chave, teste sem custo, ativar, substituição recusada, modelo, limites, consumo, remover', async ({ page }) => {
+const toggle = (page: Page, provider: string) => page.getByTestId(`ai-provider-enabled-${provider}`);
+
+test('[simulado] um fornecedor: chave, teste sem custo, ativar, substituição recusada, limites, consumo, remover', async ({ page }) => {
   test.setTimeout(90_000);
   const external = watchExternal(page);
   await openSettings(page);
 
-  // Por omissão: desativado, sem chaves, não se pode ativar. Só os três fornecedores implementados.
+  // Por omissão: sem chaves, nada ativo; o botão «Ativo» só funciona com a chave reconhecida.
   await expect(page.getByTestId('ai-key-status-anthropic')).toContainText('Sem chave');
-  await expect(page.getByTestId('ai-provider').locator('option')).toHaveText([/Anthropic/, /OpenAI/, /Google Gemini/]);
-  await expect(page.getByTestId('ai-enabled')).not.toBeChecked();
-  await expect(page.getByTestId('ai-enabled')).toBeDisabled();
-  await expect(page.getByTestId('ai-provider')).toHaveValue('anthropic');
-  await expect(page.getByTestId('ai-model')).toHaveValue('claude-sonnet-5-5');
+  await expect(page.getByTestId('ai-key-status-anthropic')).toContainText('Cole a chave abaixo');
+  await expect(page.getByTestId('ai-enabled')).toHaveText('Assistente desativado');
+  await expect(toggle(page, 'anthropic')).toBeDisabled();
+  await expect(page.getByTestId('ai-route-edit')).toContainText('Indisponível');
+  // O botão de guardar fica disponível assim que se escreve; uma chave incompleta é explicada.
+  await expect(page.getByTestId('ai-key-save-anthropic')).toBeDisabled();
+  await page.getByTestId('ai-key-input-anthropic').fill('curta');
+  await expect(page.getByTestId('ai-key-save-anthropic')).toBeEnabled();
+  await page.getByTestId('ai-key-save-anthropic').click();
+  await expect(page.getByTestId('ai-key-test-result-anthropic')).toContainText('incompleta');
 
-  // Guardar a chave: testada sem custo antes de ficar ativa; nunca volta à página.
+  // Guardar a chave: testada sem custo; nunca volta à página. Guardar NÃO ativa sozinho.
   await saveKey(page, 'anthropic', KEY_A);
   await expect(page.getByTestId('ai-settings-message')).toContainText('Chave Anthropic guardada (…AAAA). Credenciais reconhecidas');
-  await expect(page.getByTestId('ai-key-status-anthropic')).toContainText('Chave configurada');
   await expect(page.getByTestId('ai-key-status-anthropic')).toContainText('…AAAA');
   await expect(page.getByTestId('ai-key-input-anthropic')).toHaveValue('');
   expect(await everything(page)).not.toContain(KEY_A);
+  await expect(toggle(page, 'anthropic')).not.toBeChecked();
+  await expect(toggle(page, 'anthropic')).toBeEnabled();
 
   // Testar ligação (ação explícita, sem custo). Credenciais ≠ geração validada.
-  await expect(page.getByTestId('ai-key-test-anthropic')).toContainText('sem custo');
   await page.getByTestId('ai-key-test-anthropic').click();
   await expect(page.getByTestId('ai-key-test-result-anthropic')).toContainText('Isto não comprova a geração');
-  await expect(page.getByTestId('ai-key-test-result-anthropic')).toContainText('Sem custo');
   await expect(page.getByTestId('ai-cred-anthropic')).toContainText('Reconhecidas');
   await expect(page.getByTestId('ai-gen-anthropic')).toContainText('Por validar');
+
+  // Ativar: um só botão. O assistente fica ativo com o melhor modelo da Anthropic.
+  await toggle(page, 'anthropic').check();
+  await expect(toggle(page, 'anthropic')).toBeChecked();
+  await expect(page.getByTestId('ai-settings-message')).toContainText('Anthropic ativado. Edição: Claude Sonnet 5.5');
+  await expect(page.getByTestId('ai-enabled')).toHaveText('Assistente ativo');
+  await expect(page.getByTestId('ai-route-edit')).toContainText('Em uso: Claude Sonnet 5.5 (Anthropic)');
+  await expect(page.getByTestId('ai-provider-anthropic')).toContainText('Em uso: edição (Claude Sonnet 5.5)');
   await expect(page.getByTestId('ai-check-key')).toContainText('Reconhecidas');
   await expect(page.getByTestId('ai-check-generation')).toContainText('Por validar');
-
-  // Ativar.
-  await page.getByTestId('ai-enabled').check();
-  await expect(page.getByTestId('ai-enabled')).toBeChecked();
-  await expect(page.getByTestId('ai-settings-message')).toContainText('Configurações guardadas');
 
   // Substituição recusada: mantém a anterior e o assistente ativo.
   await saveKey(page, 'anthropic', KEY_BAD);
   await expect(page.getByTestId('ai-settings-message')).toContainText('Mantém-se a chave anterior (…AAAA)');
   await expect(page.getByTestId('ai-key-status-anthropic')).toContainText('…AAAA');
-  await expect(page.getByTestId('ai-enabled')).toBeChecked();
+  await expect(page.getByTestId('ai-enabled')).toHaveText('Assistente ativo');
   expect(await everything(page)).not.toContain(KEY_BAD);
-
-  // Modelo (só os suportados do fornecedor) e preços usados nas reservas.
-  await page.getByTestId('ai-model').selectOption({ label: 'Claude Haiku 4.5' });
-  await expect(page.getByTestId('ai-model-prices')).toContainText('entrada 1');
-  await page.getByTestId('ai-model-save').click();
-  await expect(page.getByTestId('ai-settings-message')).toContainText('Configurações guardadas');
 
   // Limites e orçamento.
   await page.getByTestId('ai-limit-monthly_budget_usd').fill('40');
@@ -105,77 +111,65 @@ test('[simulado] configurar a IA pelo painel: chave, teste sem custo, ativar, su
   await expect(page.getByTestId('ai-usage-images')).toContainText('Imagens');
   await expect(page.getByTestId('ai-usage-remaining')).toContainText('40,00 USD');
 
-  // Remover: confirmação; desativa.
+  // Desativar: um só botão desliga o assistente.
+  await toggle(page, 'anthropic').uncheck();
+  await expect(page.getByTestId('ai-enabled')).toHaveText('Assistente desativado');
+  await toggle(page, 'anthropic').check();
+  await expect(page.getByTestId('ai-enabled')).toHaveText('Assistente ativo');
+
+  // Remover: confirmação; o fornecedor deixa de poder ser usado.
   await page.getByTestId('ai-key-remove-anthropic').click();
   await page.getByTestId('ai-key-remove-confirm').click();
   await expect(page.getByTestId('ai-key-status-anthropic')).toContainText('Sem chave');
-  await expect(page.getByTestId('ai-enabled')).not.toBeChecked();
+  await expect(page.getByTestId('ai-enabled')).toHaveText('Assistente desativado');
 
   // Registo: quem e quando, sem segredos.
-  const entries = page.getByTestId('ai-audit-entry');
-  await expect(entries.first()).toContainText('Chave removida');
-  expect(await entries.count()).toBeGreaterThanOrEqual(6);
-  await expect(page.getByTestId('ai-audit-list')).toContainText('Chave nova recusada');
-  await expect(page.getByTestId('ai-audit-list')).toContainText('administrador local (simulação)');
+  const list = page.getByTestId('ai-audit-list');
+  await expect(page.getByTestId('ai-audit-entry').first()).toContainText('Chave removida');
+  await expect(list).toContainText('Chave nova recusada');
+  await expect(list).toContainText('Fornecedor ativado');
+  await expect(list).toContainText('Fornecedor desativado');
+  await expect(list).toContainText('administrador local (simulação)');
   const final = await everything(page);
   expect(final).not.toContain(KEY_A);
   expect(final).not.toContain(KEY_BAD);
   expect(external).toEqual([]);
 });
 
-test('[simulado] vários fornecedores: chaves independentes, trocar o fornecedor de edição preserva as chaves, imagens com modelo próprio', async ({ page }) => {
+test('[simulado] vários fornecedores ativos ao mesmo tempo: chave em qualquer um, o melhor para cada função, reserva automática', async ({ page }) => {
   test.setTimeout(90_000);
   const external = watchExternal(page);
   await openSettings(page);
 
+  // Chave em qualquer fornecedor, mesmo com outro já configurado e ativo.
   await saveKey(page, 'anthropic', KEY_A);
-  await expect(page.getByTestId('ai-key-status-anthropic')).toContainText('…AAAA');
+  await toggle(page, 'anthropic').check();
+  await expect(page.getByTestId('ai-route-edit')).toContainText('Claude Sonnet 5.5');
   await saveKey(page, 'openai', KEY_OPENAI);
   await expect(page.getByTestId('ai-key-status-openai')).toContainText('…OOOO');
-  // OpenAI: o teste sem custo confirma só credenciais (sem verificação de formato).
   await expect(page.getByTestId('ai-key-test-result-openai')).toContainText('O formato do pedido e a geração só ficam comprovados');
   await saveKey(page, 'google', KEY_GOOGLE);
   await expect(page.getByTestId('ai-key-status-google')).toContainText('…GGGG');
 
-  // Edição: passar para Google Gemini e ativar.
-  await page.getByTestId('ai-provider').selectOption('google');
-  await expect(page.getByTestId('ai-model').locator('option')).toHaveText(['Gemini 3.5 Flash-Lite', 'Gemini 3.8 Flash']);
-  await page.getByTestId('ai-model').selectOption({ label: 'Gemini 3.8 Flash' });
-  await expect(page.getByTestId('ai-model-prices')).toContainText('01/01/2027');
-  await page.getByTestId('ai-model-save').click();
-  await expect(page.getByTestId('ai-settings-message')).toContainText('Configurações guardadas');
-  await page.getByTestId('ai-enabled').check();
-  await expect(page.getByTestId('ai-enabled')).toBeChecked();
-  await expect(page.getByTestId('ai-check-generation')).toContainText('Gemini 3.8 Flash');
-  await expect(page.getByTestId('ai-provider-google')).toContainText('em uso: edição');
-  // As outras chaves continuam configuradas.
-  await expect(page.getByTestId('ai-key-status-anthropic')).toContainText('…AAAA');
-  await expect(page.getByTestId('ai-key-status-openai')).toContainText('…OOOO');
+  // Todos ativos: edição com o Claude (melhor para edição), imagens com o Gemini (único com imagens).
+  await toggle(page, 'openai').check();
+  await toggle(page, 'google').check();
+  await expect(page.getByTestId('ai-route-edit')).toContainText('Em uso: Claude Sonnet 5.5 (Anthropic)');
+  await expect(page.getByTestId('ai-route-image')).toContainText('Em uso: Gemini 3.1 Flash Image (Google Gemini)');
+  await expect(page.getByTestId('ai-provider-google')).toContainText('Em uso: imagens (Gemini 3.1 Flash Image)');
+  await expect(page.getByTestId('ai-provider-openai')).toContainText('de reserva');
 
-  // Voltar à Anthropic: a chave Google fica guardada.
-  await page.getByTestId('ai-provider').selectOption('anthropic');
-  await page.getByTestId('ai-model').selectOption({ label: 'Claude Sonnet 5.5' });
-  await page.getByTestId('ai-model-save').click();
-  await expect(page.getByTestId('ai-settings-message')).toContainText('Configurações guardadas');
-  await expect(page.getByTestId('ai-key-status-google')).toContainText('…GGGG');
+  // Desativar o Claude: a edição passa para o melhor ativo seguinte (OpenAI); as imagens não mudam.
+  await toggle(page, 'anthropic').uncheck();
+  await expect(page.getByTestId('ai-route-edit')).toContainText('Em uso: GPT-6.1 Sol (OpenAI)');
+  await expect(page.getByTestId('ai-route-image')).toContainText('Gemini 3.1 Flash Image');
+  await expect(page.getByTestId('ai-key-status-anthropic')).toContainText('…AAAA'); // a chave fica guardada
 
-  // Imagens: fornecedor e modelo próprios, custo por imagem visível; ativar.
-  await page.getByTestId('ai-image-provider').selectOption('google');
-  await page.getByTestId('ai-image-model').selectOption({ label: 'Gemini 3.1 Flash Image' });
-  await expect(page.getByTestId('ai-image-price')).toContainText('0,067 USD');
-  await page.getByTestId('ai-image-save').click();
-  await expect(page.getByTestId('ai-settings-message')).toContainText('Configurações guardadas');
-  await page.getByTestId('ai-image-enabled').check();
-  await expect(page.getByTestId('ai-image-enabled')).toBeChecked();
-  await expect(page.getByTestId('ai-image-generation')).toContainText('por validar');
-  await expect(page.getByTestId('ai-provider-google')).toContainText('em uso: imagens');
-
-  // Remover a chave Google desativa só as imagens; a edição (Anthropic) continua ativa.
+  // Remover a chave Google: só as imagens ficam indisponíveis.
   await page.getByTestId('ai-key-remove-google').click();
   await page.getByTestId('ai-key-remove-confirm').click();
-  await expect(page.getByTestId('ai-image-enabled')).not.toBeChecked();
-  await expect(page.getByTestId('ai-enabled')).toBeChecked();
-  await expect(page.getByTestId('ai-key-status-anthropic')).toContainText('…AAAA');
+  await expect(page.getByTestId('ai-route-image')).toContainText('Indisponível');
+  await expect(page.getByTestId('ai-enabled')).toHaveText('Assistente ativo');
   await expect(page.getByTestId('ai-key-status-openai')).toContainText('…OOOO');
 
   const final = await everything(page);

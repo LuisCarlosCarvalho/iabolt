@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, ImageIcon, KeyRound, PlugZap, RefreshCw, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
+  routing,
   SUPPORTED_PROVIDERS,
   TEST_COST_NOTE,
   type AdminAuditEntry,
@@ -52,6 +53,8 @@ const ACTION_LABEL: Record<string, string> = {
   key_replaced: 'Chave substituída',
   key_rejected: 'Chave nova recusada (mantida a anterior)',
   key_removed: 'Chave removida',
+  provider_enabled: 'Fornecedor ativado',
+  provider_disabled: 'Fornecedor desativado',
   key_tested: 'Ligação testada',
   admin_granted: 'Administrador adicionado',
   admin_revoked: 'Administrador removido',
@@ -102,19 +105,11 @@ export function AiSettingsPage() {
   const [audit, setAudit] = useState<AdminAuditEntry[]>([]);
   const [msg, setMsg] = useState<Msg>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [editProvider, setEditProvider] = useState<ProviderId>('anthropic');
-  const [model, setModel] = useState('');
-  const [imageProvider, setImageProvider] = useState<ProviderId | ''>('');
-  const [imageModel, setImageModel] = useState('');
   const [limits, setLimits] = useState<Record<string, string>>({});
   const [confirmRemove, setConfirmRemove] = useState<ProviderId | null>(null);
 
   const adopt = useCallback((v: AdminView) => {
     setView(v);
-    setEditProvider(v.settings.provider);
-    setModel(v.settings.model);
-    setImageProvider(v.settings.image_provider ?? '');
-    setImageModel(v.settings.image_model ?? '');
     setLimits(Object.fromEntries(LIMIT_FIELDS.map((f) => [f.key, String(v.settings[f.key])])));
   }, []);
 
@@ -179,14 +174,8 @@ export function AiSettingsPage() {
   const s = view.settings;
   const version = s.version;
   const editKeyValid = s.keys[s.provider].status === 'valid';
-  const imageKeyValid = s.image_provider ? s.keys[s.image_provider].status === 'valid' : false;
-  const editModels = view.models.filter((m) => m.capability === 'edit' && m.provider === editProvider);
-  const imageProviders = SUPPORTED_PROVIDERS.filter((p) => view.models.some((m) => m.capability === 'image' && m.provider === p.id));
-  const imageModels = view.models.filter((m) => m.capability === 'image' && m.provider === imageProvider);
-  const selectedModel = view.models.find((m) => m.provider === editProvider && m.model === model);
-  const selectedImage = view.models.find((m) => m.provider === imageProvider && m.model === imageModel);
+  const route = routing(view);
   const editGen = validatedAt(generation, s.provider, s.model, 'edit');
-  const imageGen = s.image_provider && s.image_model ? validatedAt(generation, s.image_provider, s.image_model, 'image') : null;
 
   const saveLimits = () => {
     const patch: Record<string, number> = {};
@@ -234,7 +223,8 @@ export function AiSettingsPage() {
         <div className="ai-settings-main">
           <Section step={1} title="Fornecedores e chaves" testId="ai-settings-keys">
             <p className="hint">
-              Cada fornecedor tem a sua chave, guardada cifrada no cofre do servidor. Trocar o fornecedor em uso não apaga as outras chaves. Só aparecem fornecedores com integração implementada.
+              Pode guardar a chave de qualquer fornecedor (fica cifrada no cofre do servidor) e ativar os que quiser usar. Vários podem estar ativos ao mesmo tempo: o
+              assistente usa o melhor para cada função (passo 2). Só aparecem fornecedores com integração implementada.
             </p>
             <div className="ai-providers">
               {SUPPORTED_PROVIDERS.map((p) => (
@@ -251,158 +241,36 @@ export function AiSettingsPage() {
             </div>
           </Section>
 
-          <Section step={2} title="Edição (assistente)" testId="ai-settings-model">
-            <div className="ai-row2">
-              <label className="field">
-                <span>Fornecedor</span>
-                <select
-                  className="select"
-                  value={editProvider}
-                  onChange={(e) => {
-                    const next = SUPPORTED_PROVIDERS.find((x) => x.id === e.target.value)?.id ?? 'anthropic';
-                    setEditProvider(next);
-                    setModel(view.models.find((m) => m.provider === next && m.capability === 'edit')?.model ?? '');
-                  }}
-                  disabled={busy !== null}
-                  data-testid="ai-provider"
-                >
-                  {SUPPORTED_PROVIDERS.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                      {s.keys[p.id].status === 'valid' ? '' : ' (sem chave reconhecida)'}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span>Modelo de edição</span>
-                <select className="select" value={model} onChange={(e) => setModel(e.target.value)} disabled={busy !== null} data-testid="ai-model">
-                  {editModels.map((m) => (
-                    <option key={m.model} value={m.model}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+          <Section step={2} title="Como o assistente escolhe" testId="ai-settings-routing">
             <p className="hint">
-              {selectedModel && (
-                <span data-testid="ai-model-prices">
-                  Preços (USD por milhão de tokens): entrada {selectedModel.prices.input} · saída {selectedModel.prices.output} · cache {selectedModel.prices.cacheRead}. Usados nas reservas seguintes.
-                  {selectedModel.note ? ` ${selectedModel.note}` : ''}
-                </span>
-              )}
+              Para cada função, o servidor usa o melhor fornecedor <strong>ativo</strong> com a chave reconhecida, pela ordem abaixo. Se um fornecedor for desativado ou a chave
+              falhar num teste, passa para o ativo seguinte. Não muda a meio de um pedido.
             </p>
-            {editProvider !== s.provider && s.keys[editProvider].status !== 'valid' && (
-              <p className="hint" data-testid="ai-provider-needs-key">
-                Este fornecedor ainda não tem uma chave reconhecida: pode escolhê-lo, mas o assistente só é ativado depois de configurar e reconhecer a chave (passo 1).
-              </p>
-            )}
-            <Button
-              disabled={busy !== null || !model || (editProvider === s.provider && model === s.model)}
-              onClick={() =>
-                void run('model', {
-                  action: 'update',
-                  expectedVersion: version,
-                  // Mudar para um fornecedor sem chave reconhecida desativa o assistente (nunca aponta para uma chave má).
-                  patch: { provider: editProvider, model, ...(s.enabled && s.keys[editProvider].status !== 'valid' ? { enabled: false } : {}) },
-                })
-              }
-              data-testid="ai-model-save"
-            >
-              Guardar fornecedor e modelo
-            </Button>
+            <div className="ai-routing">
+              {(['edit', 'image'] as const).map((cap) => {
+                const current = cap === 'edit' ? route.edit : route.image;
+                const order = view.models.filter((m) => m.capability === cap && typeof m.preference === 'number').sort((x, y) => (x.preference ?? 0) - (y.preference ?? 0));
+                return (
+                  <div key={cap} className="ai-routing-item" data-testid={`ai-route-${cap}`}>
+                    <strong>{cap === 'edit' ? 'Edição de textos e estilos' : 'Geração de imagens'}</strong>
+                    <p className={current ? 'ai-route-on' : 'ai-route-off'}>
+                      {current ? `Em uso: ${current.label} (${PROVIDER_LABEL[current.provider]})` : cap === 'edit' ? 'Indisponível: ative um fornecedor com a chave reconhecida.' : 'Indisponível: ative a Google (Gemini) com a chave reconhecida.'}
+                    </p>
+                    <ol className="hint">
+                      {order.map((m) => (
+                        <li key={m.model}>
+                          {m.label} ({PROVIDER_LABEL[m.provider]})
+                          {s.keys[m.provider].enabled ? (s.keys[m.provider].status === 'valid' ? '' : ' · chave por reconhecer') : ' · fornecedor inativo'}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                );
+              })}
+            </div>
           </Section>
 
-          <Section step={3} title="Geração de imagens" testId="ai-settings-images">
-            {imageProviders.length === 0 ? (
-              <p className="hint">Nenhum modelo de imagens suportado.</p>
-            ) : (
-              <>
-                <div className="ai-row2">
-                  <label className="field">
-                    <span>Fornecedor de imagens</span>
-                    <select
-                      className="select"
-                      value={imageProvider}
-                      onChange={(e) => {
-                        const next = imageProviders.find((x) => x.id === e.target.value)?.id ?? '';
-                        setImageProvider(next);
-                        setImageModel(view.models.find((m) => m.provider === next && m.capability === 'image')?.model ?? '');
-                      }}
-                      disabled={busy !== null}
-                      data-testid="ai-image-provider"
-                    >
-                      <option value="">— Nenhum —</option>
-                      {imageProviders.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.label}
-                          {s.keys[p.id].status === 'valid' ? '' : ' (sem chave reconhecida)'}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Modelo de imagens</span>
-                    <select className="select" value={imageModel} onChange={(e) => setImageModel(e.target.value)} disabled={busy !== null || !imageProvider} data-testid="ai-image-model">
-                      {imageModels.map((m) => (
-                        <option key={m.model} value={m.model}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                {selectedImage && (
-                  <p className="hint" data-testid="ai-image-price">
-                    Custo por imagem: {usd(selectedImage.price_image ?? 0)} (tarifa publicada; o utilizador vê este valor e confirma antes de cada geração). {selectedImage.note ?? ''}
-                  </p>
-                )}
-                <div className="ai-key-actions">
-                  <Button
-                    disabled={busy !== null || (imageProvider === (s.image_provider ?? '') && imageModel === (s.image_model ?? ''))}
-                    onClick={() =>
-                      void run('image-model', {
-                        action: 'update',
-                        expectedVersion: version,
-                        patch: imageProvider
-                          ? { image_provider: imageProvider, image_model: imageModel, ...(s.image_enabled && s.keys[imageProvider].status !== 'valid' ? { image_enabled: false } : {}) }
-                          : { image_provider: null, image_model: null, image_enabled: false },
-                      })
-                    }
-                    data-testid="ai-image-save"
-                  >
-                    Guardar modelo de imagens
-                  </Button>
-                  <label className={`ai-toggle ${imageKeyValid ? '' : 'is-disabled'}`}>
-                    <input
-                      type="checkbox"
-                      checked={s.image_enabled}
-                      disabled={busy !== null || (!imageKeyValid && !s.image_enabled) || !s.image_model}
-                      onChange={(e) => void run('image-enabled', { action: 'update', expectedVersion: version, patch: { image_enabled: e.target.checked } })}
-                      data-testid="ai-image-enabled"
-                    />
-                    <span>{s.image_enabled ? 'Geração de imagens ativa' : 'Geração de imagens desativada'}</span>
-                  </label>
-                </div>
-                {/* Credencial: uma chave por fornecedor (passo 1), partilhada pela edição e pelas imagens. */}
-                <p className="hint" data-testid="ai-image-credential">
-                  {!imageProvider
-                    ? 'Credencial: escolha primeiro o fornecedor de imagens.'
-                    : s.keys[imageProvider].status === 'valid'
-                      ? `Credencial: usa a chave ${PROVIDER_LABEL[imageProvider]} já guardada no passo 1 (reconhecida)${imageProvider === s.provider ? ', a mesma da edição' : ''}. Não é preciso outra chave.`
-                      : s.keys[imageProvider].configured
-                        ? `Credencial: a chave ${PROVIDER_LABEL[imageProvider]} do passo 1 foi recusada no último teste. Substitua-a no cartão ${PROVIDER_LABEL[imageProvider]} (passo 1) e teste-a.`
-                        : `Credencial em falta: guarde a chave ${PROVIDER_LABEL[imageProvider]} no cartão ${PROVIDER_LABEL[imageProvider]} do passo 1 (fica cifrada no cofre do servidor). Depois guarde o modelo e ative a geração aqui.`}
-                </p>
-                <p className="hint" data-testid="ai-image-generation">
-                  {imageGen ? `Geração de imagens validada em ${formatDateTime(imageGen.at)} com este modelo.` : 'Geração de imagens por validar: só uma imagem real gerada com este modelo a comprova.'}
-                </p>
-              </>
-            )}
-          </Section>
-
-          <Section step={4} title="Limites e orçamento" testId="ai-settings-limits">
+          <Section step={3} title="Limites e orçamento" testId="ai-settings-limits">
             <div className="ai-limits">
               {LIMIT_FIELDS.map((f) => (
                 <label key={f.key} className="field">
@@ -428,20 +296,13 @@ export function AiSettingsPage() {
         </div>
         <aside className="ai-settings-side" aria-label="Estado, consumo e registo">
           <Section title="Estado do assistente" testId="ai-settings-state">
-            <label className={`ai-toggle ${editKeyValid ? '' : 'is-disabled'}`}>
-              <input
-                type="checkbox"
-                checked={s.enabled}
-                disabled={busy !== null || (!editKeyValid && !s.enabled)}
-                onChange={(e) => void run('enabled', { action: 'update', expectedVersion: version, patch: { enabled: e.target.checked } })}
-                data-testid="ai-enabled"
-              />
-              <span>{s.enabled ? 'Assistente ativo' : 'Assistente desativado'}</span>
-            </label>
+            <p className={`ai-state ${s.enabled ? 'is-on' : 'is-off'}`} data-testid="ai-enabled">
+              {s.enabled ? 'Assistente ativo' : 'Assistente desativado'}
+            </p>
             <p className="hint">
-              {editKeyValid
-                ? 'Desativar bloqueia de imediato novos pedidos, mesmo em sessões já abertas.'
-                : `Desativado. Só pode ser ativado com a chave ${PROVIDER_LABEL[s.provider]} reconhecida.`}
+              {s.enabled
+                ? 'Ativo porque há pelo menos um fornecedor ativo para edição. Desativar todos os fornecedores bloqueia de imediato novos pedidos, mesmo em sessões já abertas.'
+                : 'Ative um fornecedor (com a chave reconhecida) para ligar o assistente.'}
             </p>
             <dl className="ai-checks">
               <div data-testid="ai-check-key">
@@ -552,14 +413,19 @@ function ProviderCard({
   const [draft, setDraft] = useState('');
   const [note, setNote] = useState<string | null>(null);
   const k = view.settings.keys[provider];
-  const s = view.settings;
-  const uses = [s.provider === provider ? 'edição' : null, s.image_provider === provider ? 'imagens' : null].filter(Boolean);
+  const route = routing(view);
+  const uses = [route.edit?.provider === provider ? `edição (${route.edit.label})` : null, route.image?.provider === provider ? `imagens (${route.image.label})` : null].filter(Boolean);
+  const active = k.enabled === true;
   const gen = validatedAt(generation, provider);
   const models = view.models.filter((m) => m.provider === provider);
 
   const save = (e: FormEvent) => {
     e.preventDefault();
     const key = draft.trim();
+    if (key.length < 20 || /\s/.test(key)) {
+      setNote('A chave parece incompleta ou tem espaços: cole a chave completa, tal como o fornecedor a mostra.');
+      return;
+    }
     // O campo é limpo já: a chave não fica no estado da página depois de enviada.
     setDraft('');
     setNote(null);
@@ -582,7 +448,6 @@ function ProviderCard({
               <ImageIcon aria-hidden="true" /> imagens
             </>
           )}
-          {uses.length > 0 && <> · em uso: {uses.join(' e ')}</>}
         </span>
       </header>
       <div className={`ai-key-status ${k.configured ? (k.status === 'valid' ? 'is-ok' : 'is-bad') : ''}`} data-testid={`ai-key-status-${provider}`}>
@@ -597,10 +462,29 @@ function ProviderCard({
         ) : (
           <div>
             <strong>Sem chave</strong>
-            <span>Nada deste fornecedor pode ser ativado.</span>
+            <span>Cole a chave abaixo e clique «Guardar chave»; depois pode ativar este fornecedor.</span>
           </div>
         )}
       </div>
+      <label className={`ai-toggle ai-provider-toggle ${k.status === 'valid' ? '' : 'is-disabled'}`}>
+        <input
+          type="checkbox"
+          checked={active}
+          disabled={busy !== null || (k.status !== 'valid' && !active)}
+          onChange={(e) => void onRun(`enable-${provider}`, { action: 'setEnabled', provider, enabled: e.target.checked })}
+          data-testid={`ai-provider-enabled-${provider}`}
+        />
+        <span>{active ? 'Ativo' : 'Inativo'}</span>
+        <small className="hint">
+          {k.status !== 'valid'
+            ? 'Guarde (ou teste) a chave para poder ativar.'
+            : active
+              ? uses.length
+                ? `Em uso: ${uses.join(' e ')}.`
+                : 'Ativo, de reserva: outro fornecedor ativo tem prioridade.'
+              : 'Ative para o assistente poder usar este fornecedor.'}
+        </small>
+      </label>
       <dl className="ai-checks">
         <div data-testid={`ai-cred-${provider}`}>
           <dt>Credenciais</dt>
@@ -627,7 +511,7 @@ function ProviderCard({
           />
         </label>
         <div className="ai-key-actions">
-          <Button type="submit" variant="primary" disabled={busy !== null || draft.trim().length < 20} data-testid={`ai-key-save-${provider}`}>
+          <Button type="submit" variant="primary" disabled={busy !== null || draft.trim().length === 0} data-testid={`ai-key-save-${provider}`}>
             {busy === `key-${provider}` ? 'A verificar…' : k.configured ? 'Substituir chave' : 'Guardar chave'}
           </Button>
           <Button

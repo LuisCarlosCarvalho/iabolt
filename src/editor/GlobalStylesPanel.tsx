@@ -18,7 +18,8 @@ import {
   type GlobalStyles,
 } from '../engine/globalStyles';
 import { DraftInput } from './DraftInput';
-import { FONTS, toHex } from './StyleInspector';
+import { FontPicker } from './FontPicker';
+import { toHex } from './StyleInspector';
 
 /**
  * Ferramenta «Estilos globais»: cores, tipografia e estilos de elementos que se aplicam a todas as
@@ -226,24 +227,18 @@ function ColorControl({ editor, slot, g }: { editor: Editor; slot: GlobalSlot; g
 
 function FontControl({ editor, slot, g }: { editor: Editor; slot: GlobalSlot; g: GlobalStyles }) {
   const vars = candidates(slot, g, 'font');
-  const options: Array<[string, string]> = [
-    ...vars.map((v): [string, string] => [`var(${v.name})`, `Segue «${v.label}» · ${firstFamily(resolveValue(v.value || v.fallback, g.variables))}`]),
-    ...g.projectFonts.map((f): [string, string] => [`'${f}', sans-serif`, `${f} (fonte do projeto)`]),
-    ...FONTS,
-  ];
+  const extra = vars.map((v): [string, string] => [`var(${v.name})`, `Segue «${v.label}» · ${firstFamily(resolveValue(v.value || v.fallback, g.variables))}`]);
   const current = slot.value;
-  // Mesma família com outra escrita (aspas, alternativas) conta como a mesma opção.
-  const match = options.find(([v]) => v === current) ?? (variableOf(current) ? undefined : options.find(([v]) => !variableOf(v) && firstFamily(v) === firstFamily(current) && current !== ''));
-  const value = match?.[0] ?? current;
   return (
-    <select className="select" aria-label={slot.label} data-testid="global-font" value={value} onChange={(e) => writeSlot(editor, slot.key, e.target.value)}>
-      {!match && <option value={current}>{current ? `${firstFamily(current)} (atual)` : slot.fallback ? `Predefinição (${firstFamily(slot.fallback)})` : 'Sem valor'}</option>}
-      {options.map(([v, l]) => (
-        <option key={v} value={v}>
-          {l}
-        </option>
-      ))}
-    </select>
+    <FontPicker
+      editor={editor}
+      value={current}
+      extra={extra}
+      {...(current ? {} : { emptyLabel: slot.fallback ? `Predefinição (${firstFamily(slot.fallback)})` : 'Sem valor' })}
+      label={slot.label}
+      testId="global-font"
+      onChange={(v) => writeSlot(editor, slot.key, v)}
+    />
   );
 }
 

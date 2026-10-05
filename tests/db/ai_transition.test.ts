@@ -77,6 +77,7 @@ const v2: AdminDeps = {
   },
   removeKey: (actor, provider, version) => rpc('ai_admin_remove_key_v2', { p_actor: actor, p_provider: provider, p_expected_version: version }),
   recordTest: (actor, provider, ok, detail) => rpc('ai_admin_record_test_v2', { p_actor: actor, p_provider: provider, p_ok: ok, p_detail: detail }),
+  setEnabled: (actor, provider, enabled) => rpc('ai_admin_set_provider_enabled_v2', { p_actor: actor, p_provider: provider, p_enabled: enabled }),
   providerKey: async (provider) => {
     const k = await service<{ k: string | null }>('select public.ai_provider_key_for($1) as k', [provider]);
     return k.rows[0]?.k ?? null;

@@ -233,3 +233,55 @@ test('projeto GrapesJS: editar pelo inspetor mantém menu móvel, carrossel e ba
   await expect(menu.locator('[data-bolt-type="menu-items"]')).toBeVisible();
   expect(await section.count()).toBe(1);
 });
+
+test('fonte do Google Fonts: escolher carrega as @font-face no projeto, outra pelo nome, erro legível e mantém-se depois de recarregar', async ({ page }) => {
+  // Sem rede real: o CSS da Google é simulado (formato do css2) e os ficheiros de fonte são recusados.
+  const asked: string[] = [];
+  await page.route('https://fonts.googleapis.com/**', async (route) => {
+    const url = new URL(route.request().url());
+    asked.push(url.searchParams.get('family') ?? '');
+    const family = (url.searchParams.get('family') ?? '').split(':')[0] ?? '';
+    if (family.startsWith('Nao Existe')) return route.fulfill({ status: 400, body: 'bad' });
+    return route.fulfill({
+      status: 200,
+      contentType: 'text/css',
+      headers: { 'access-control-allow-origin': '*' },
+      body: `@font-face { font-family: '${family}'; font-style: normal; font-weight: 400; font-display: swap; src: url(https://fonts.gstatic.com/s/teste/v1/a.woff2) format('woff2'); }`,
+    });
+  });
+  await page.route('https://fonts.gstatic.com/**', (route) => route.abort());
+  await createNimbus(page);
+  const h1 = frame(page).locator('h1').first();
+  await h1.click();
+  await openGroup(page, 'typography');
+
+  const select = page.getByTestId('style-font-family');
+  await select.selectOption({ label: 'Poppins' });
+  await expect.poll(() => css(h1, 'font-family')).toContain('Poppins');
+  await expect(select).toHaveValue("'Poppins', sans-serif");
+  await expect(select.locator('optgroup[label="Fontes do projeto"] option')).toHaveText(['Poppins (fonte do projeto)']);
+  expect(asked).toEqual(['Poppins:wght@400;500;600;700;800']);
+
+  // Outra família pelo nome.
+  await select.selectOption({ label: 'Outra do Google Fonts…' });
+  await page.getByTestId('style-font-family-other').fill('Quicksand');
+  await page.getByTestId('style-font-family-other-add').click();
+  await expect.poll(() => css(h1, 'font-family')).toContain('Quicksand');
+
+  // Família inexistente: mensagem e nada muda.
+  await select.selectOption({ label: 'Outra do Google Fonts…' });
+  await page.getByTestId('style-font-family-other').fill('Nao Existe');
+  await page.getByTestId('style-font-family-other-add').click();
+  await expect(page.getByTestId('style-font-family-error')).toContainText('não existe no Google Fonts');
+  expect(await css(h1, 'font-family')).toContain('Quicksand');
+
+  // As @font-face são estilos do projeto, desenhados no canvas.
+  const faces = () => frame(page).locator('body').evaluate(() => [...document.querySelectorAll('style')].map((x) => x.textContent ?? '').filter((t) => t.includes('@font-face')).join('\n'));
+  expect(await faces()).toContain("font-family:'Poppins'");
+  // Gravado: depois de recarregar, a fonte e as @font-face continuam no projeto.
+  await expect(page.getByTestId('save-status')).toHaveText('Alterações guardadas neste browser');
+  await page.reload();
+  await expect.poll(() => css(frame(page).locator('h1').first(), 'font-family')).toContain('Quicksand');
+  await expect.poll(faces).toContain("font-family:'Poppins'");
+  expect(await faces()).toContain("font-family:'Quicksand'");
+});

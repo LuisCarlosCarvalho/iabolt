@@ -16,14 +16,14 @@ const ACTOR_EMAIL = 'administrador local (simulação)';
 /** Iguais aos modelos SUPORTADOS da migração 20261001120000. */
 export const LOCAL_MODELS: AdminModel[] = [
   { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', capability: 'edit', price_image: null, note: null, prices: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 } },
-  { provider: 'anthropic', model: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', capability: 'edit', price_image: null, note: null, prices: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 } },
+  { provider: 'anthropic', model: 'claude-sonnet-5-5', preference: 10, label: 'Claude Sonnet 5.5', capability: 'edit', price_image: null, note: null, prices: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 } },
   { provider: 'anthropic', model: 'claude-opus-5-5', label: 'Claude Opus 5.5', capability: 'edit', price_image: null, note: null, prices: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 } },
   { provider: 'google', model: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite', capability: 'edit', price_image: null, note: null, prices: { input: 0.3, output: 2.5, cacheRead: 0.03, cacheWrite: 0.3 } },
-  { provider: 'google', model: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', capability: 'edit', price_image: null, note: 'Preço a partir de 01/01/2027 (até lá 0,75/3,75): a reserva usa o mais alto.', prices: { input: 1.5, output: 7.5, cacheRead: 0.15, cacheWrite: 1.5 } },
-  { provider: 'google', model: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image', capability: 'image', price_image: 0.067, note: 'Imagem 1K: 0,067 USD.', prices: { input: 0.5, output: 3, cacheRead: 0, cacheWrite: 0.5 } },
-  { provider: 'google', model: 'gemini-3-pro-image', label: 'Gemini 3 Pro Image', capability: 'image', price_image: 0.134, note: 'Imagem 1K/2K: 0,134 USD.', prices: { input: 2, output: 12, cacheRead: 0, cacheWrite: 2 } },
+  { provider: 'google', model: 'gemini-3.8-flash', preference: 30, label: 'Gemini 3.8 Flash', capability: 'edit', price_image: null, note: 'Preço a partir de 01/01/2027 (até lá 0,75/3,75): a reserva usa o mais alto.', prices: { input: 1.5, output: 7.5, cacheRead: 0.15, cacheWrite: 1.5 } },
+  { provider: 'google', model: 'gemini-3.1-flash-image', preference: 10, label: 'Gemini 3.1 Flash Image', capability: 'image', price_image: 0.067, note: 'Imagem 1K: 0,067 USD.', prices: { input: 0.5, output: 3, cacheRead: 0, cacheWrite: 0.5 } },
+  { provider: 'google', model: 'gemini-3-pro-image', preference: 20, label: 'Gemini 3 Pro Image', capability: 'image', price_image: 0.134, note: 'Imagem 1K/2K: 0,134 USD.', prices: { input: 2, output: 12, cacheRead: 0, cacheWrite: 2 } },
   { provider: 'openai', model: 'gpt-6-luna', label: 'GPT-6 Luna', capability: 'edit', price_image: null, note: null, prices: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.1 } },
-  { provider: 'openai', model: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', capability: 'edit', price_image: null, note: 'Preços de contexto curto; pedidos do assistente ficam muito abaixo do limite de contexto longo.', prices: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2 } },
+  { provider: 'openai', model: 'gpt-6.1-sol', preference: 20, label: 'GPT-6.1 Sol', capability: 'edit', price_image: null, note: 'Preços de contexto curto; pedidos do assistente ficam muito abaixo do limite de contexto longo.', prices: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2 } },
   { provider: 'openai', model: 'gpt-6-astra', label: 'GPT-6 Astra', capability: 'edit', price_image: null, note: null, prices: { input: 10, output: 50, cacheRead: 1, cacheWrite: 10 } },
 ];
 
@@ -37,6 +37,8 @@ interface KeyState {
   testedAt: string | null;
   updatedAt: string | null;
   pending: { id: string; last4: string; fingerprint: string } | null;
+  /** O administrador ativou o fornecedor. */
+  enabled: boolean;
 }
 
 interface Settings {
@@ -62,7 +64,7 @@ interface Settings {
 }
 
 const now = () => new Date().toISOString();
-const emptyKey = (): KeyState => ({ id: null, last4: null, fingerprint: null, status: 'none', testedAt: null, updatedAt: null, pending: null });
+const emptyKey = (): KeyState => ({ id: null, last4: null, fingerprint: null, status: 'none', testedAt: null, updatedAt: null, pending: null, enabled: false });
 
 export function createLocalAiAdmin(checkKey?: (key: string, provider: ProviderId) => Promise<KeyCheck>): AdminDeps {
   const settings: Settings = {
@@ -108,7 +110,18 @@ export function createLocalAiAdmin(checkKey?: (key: string, provider: ProviderId
     if (s.image_enabled && (!s.image_provider || !s.image_model || keys[s.image_provider].status !== 'valid')) throw new Error('ai_settings_check');
     if (s.timeout_ms * (s.max_retries + 1) + 10000 > 140000) throw new Error('ai_settings_check');
   };
-  const keyView = (k: KeyState) => ({ configured: k.id !== null, last4: k.last4, fingerprint: k.fingerprint, status: k.status, tested_at: k.testedAt, updated_at: k.updatedAt });
+  const keyView = (k: KeyState) => ({ configured: k.id !== null, last4: k.last4, fingerprint: k.fingerprint, status: k.status, tested_at: k.testedAt, updated_at: k.updatedAt, enabled: k.enabled });
+  /** Igual a ai__route(): o melhor modelo de cada função entre os fornecedores ativos com chave válida. */
+  const route = () => {
+    const best = (cap: 'edit' | 'image') =>
+      LOCAL_MODELS.filter((m) => m.capability === cap && typeof m.preference === 'number' && keys[m.provider].enabled && keys[m.provider].status === 'valid').sort((a, b) => (a.preference ?? 0) - (b.preference ?? 0))[0];
+    const edit = best('edit');
+    const image = best('image');
+    settings.enabled = !!edit;
+    if (edit) Object.assign(settings, { provider: edit.provider, model: edit.model });
+    settings.image_enabled = !!image;
+    if (image) Object.assign(settings, { image_provider: image.provider, image_model: image.model });
+  };
   const view = () => ({
     settings: {
       ...settings,
@@ -153,6 +166,11 @@ export function createLocalAiAdmin(checkKey?: (key: string, provider: ProviderId
       for (const [k, v] of Object.entries(patch)) if (Reflect.get(settings, k) !== v) changes[k] = { de: Reflect.get(settings, k), para: v };
       if (Object.keys(changes).length === 0) return view();
       Object.assign(settings, next);
+      // Como o gatilho ai__sync_enabled: ligar por este caminho marca o fornecedor como ativo.
+      let marked = false;
+      if (patch.enabled === true && !keys[settings.provider].enabled) marked = keys[settings.provider].enabled = true;
+      if (patch.image_enabled === true && settings.image_provider && !keys[settings.image_provider].enabled) marked = keys[settings.image_provider].enabled = true;
+      if (marked) route();
       bump();
       record('update', changes);
       return view();
@@ -175,6 +193,7 @@ export function createLocalAiAdmin(checkKey?: (key: string, provider: ProviderId
       const oldLast4 = k.last4;
       Object.assign(k, { id: p.id, last4: p.last4, fingerprint: p.fingerprint, status: 'valid', testedAt: now(), updatedAt: now(), pending: null });
       if (old) vault.delete(old);
+      route();
       bump();
       record(old ? 'key_replaced' : 'key_set', { fornecedor: provider, chave: { de: oldLast4 ? `…${oldLast4}` : null, para: `…${p.last4}` } });
       return view();
@@ -196,6 +215,7 @@ export function createLocalAiAdmin(checkKey?: (key: string, provider: ProviderId
       const disabled = disableUsersOf(provider);
       if (k.id) vault.delete(k.id);
       Object.assign(k, { id: null, last4: null, fingerprint: null, status: 'none', testedAt: null, updatedAt: now() });
+      route();
       bump();
       record('key_removed', { fornecedor: provider, chave: last4 ? `…${last4}` : null, ...disabled });
       return view();
@@ -207,8 +227,23 @@ export function createLocalAiAdmin(checkKey?: (key: string, provider: ProviderId
       const disabled = ok ? {} : disableUsersOf(provider);
       k.status = ok ? 'valid' : 'invalid';
       k.testedAt = now();
+      route();
       bump();
       record('key_tested', { fornecedor: provider, chave: `…${k.last4 ?? ''}`, resultado: ok ? 'aceite' : 'recusada', detalhe: detail.slice(0, 200), ...disabled });
+      return view();
+    },
+    async setEnabled(actor, provider, enabled) {
+      assert(actor);
+      const k = keys[provider];
+      if (enabled && k.status !== 'valid') throw new Error('key_not_valid');
+      k.enabled = enabled;
+      route();
+      bump();
+      record(enabled ? 'provider_enabled' : 'provider_disabled', {
+        fornecedor: provider,
+        edição: settings.enabled ? `${settings.provider} · ${settings.model}` : 'desativada',
+        imagens: settings.image_enabled ? `${settings.image_provider ?? ''} · ${settings.image_model ?? ''}` : 'desativadas',
+      });
       return view();
     },
     async providerKey(provider) {

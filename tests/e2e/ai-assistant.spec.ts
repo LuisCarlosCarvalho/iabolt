@@ -181,10 +181,11 @@ test('[simulado] ligação (destino e novo separador), destino inseguro recusado
   await expect(link).toHaveAttribute('href', 'https://exemplo.pt/contacto');
   await expect(link).toHaveAttribute('target', '_blank');
 
-  // Estilo só no telemóvel: o computador fica igual.
+  // Responsivo automático: sem seletor de dispositivo; um pedido «no telemóvel» só muda o telemóvel.
+  await expect(page.getByTestId('ai-device')).toHaveCount(0);
+  await expect(page.getByTestId('ai-responsive')).toContainText('Responsivo automático');
   const desktopSize = await css(link, 'font-size');
-  await page.getByTestId('ai-device').selectOption({ label: 'Telemóvel' });
-  await ask(page, 'tamanho 40px');
+  await ask(page, 'telemóvel: tamanho 40px');
   await expect(page.getByTestId('ai-changes')).toContainText('Tamanho da letra (Telemóvel)');
   await page.getByTestId('ai-apply').click();
   await expect(page.getByTestId('ai-applied')).toBeVisible();
@@ -221,9 +222,14 @@ test('[simulado] antes/depois à largura e no breakpoint do dispositivo escolhid
   await expect.poll(() => css(h1, 'color')).toBe('rgb(185, 28, 28)');
   expect(await css(h1, 'font-size')).toBe(previewSize);
 
-  // Telemóvel: renderizado a 375 px; a regra de telemóvel do template aplica-se na prévia.
-  await page.getByTestId('ai-device').selectOption({ label: 'Telemóvel' });
-  await ask(page, 'tamanho 30px');
+  // Base + ajuste de telemóvel na mesma proposta (responsivo). A prévia abre no computador (base);
+  // o separador Telemóvel renderiza a 375 px, onde a regra de telemóvel do template se aplica.
+  await ask(page, 'negrito; telemóvel: tamanho 30px');
+  await expect(page.getByTestId('ai-changes')).toContainText('Tamanho da letra (Telemóvel)');
+  await expect(page.getByTestId('ai-preview')).toHaveAttribute('data-width', '1280');
+  await expect.poll(() => css(inPreview(), 'font-size')).toBe(previewSize);
+  await expect.poll(() => css(inPreview(), 'font-weight')).toBe('700');
+  await page.getByTestId('ai-preview-device-mobile').click();
   await expect(page.getByTestId('ai-preview')).toHaveAttribute('data-width', '375');
   expect(await innerWidth()).toBe(375);
   await expect.poll(() => css(inPreview(), 'font-size')).toBe('30px');
@@ -241,8 +247,9 @@ test('[simulado] antes/depois à largura e no breakpoint do dispositivo escolhid
 
   await page.getByTestId('ai-apply').click();
   await expect(page.getByTestId('ai-applied')).toBeVisible();
-  // O resultado aplicado no canvas (telemóvel) corresponde à prévia; o computador não mudou.
+  // O resultado aplicado corresponde à prévia: no computador só a base (negrito), no telemóvel 30px.
   expect(await css(h1, 'font-size')).toBe(previewSize);
+  await expect.poll(() => css(h1, 'font-weight')).toBe('700');
   await page.getByRole('button', { name: 'Telemóvel', exact: true }).click();
   await expect.poll(() => css(frame(page).locator('h1').first(), 'font-size')).toBe('30px');
   await expect.poll(() => css(frame(page).locator('h1').first(), 'color')).toBe('rgb(185, 28, 28)');

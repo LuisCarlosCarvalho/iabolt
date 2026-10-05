@@ -1,9 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   AI_CONTRACT_VERSION,
+  AI_DEVICES,
   AI_TEXT_TAGS,
   AiProposeResponse,
   scopeRoot,
+  type AiDevice,
   type AiImageSource,
   type AiNode,
   type AiOperation,
@@ -100,7 +102,21 @@ export class SimulatedProposer implements Proposer {
       const m = /^gerar\s+(.+)$/i.exec(rest.trim());
       return m?.[1] ? { kind: 'generate', prompt: m[1].trim(), aspect: '16:9' } : { kind: 'choose', hint: rest.trim() || undefined };
     };
-    const parts = text.replace(/\[simulado:[a-z]+\]/g, '').split(/[;\n]/).map((s) => s.trim()).filter(Boolean);
+    const rawParts = text.replace(/\[simulado:[a-z]+\]/g, '').split(/[;\n]/).map((s) => s.trim()).filter(Boolean);
+    // «telemóvel: tamanho 30px» / «tablet: …»: estilos só desse ecrã (como o modelo faz no responsivo).
+    const byDevice: Partial<Record<AiDevice, Partial<Record<AiStyleProp, string>>>> = {};
+    const parts: string[] = [];
+    for (const raw of rawParts) {
+      const dm = /^(telem[óo]vel|mobile|tablet)\s*:\s*(.+)$/i.exec(raw);
+      if (!dm?.[1] || !dm[2]) {
+        parts.push(raw);
+        continue;
+      }
+      const dev: AiDevice = /tablet/i.test(dm[1]) ? 'tablet' : 'mobile';
+      const bucket = (byDevice[dev] ??= {});
+      const sm = /^(cor|fundo|tamanho)\s+(.+)$/i.exec(dm[2].trim());
+      if (sm?.[1] && sm[2]) bucket[sm[1].toLowerCase() === 'cor' ? 'color' : sm[1].toLowerCase() === 'fundo' ? 'background-color' : 'font-size'] = sm[2].trim();
+    }
     let seq = 0;
     for (const part of parts) {
       let m: RegExpExecArray | null;
@@ -156,6 +172,10 @@ export class SimulatedProposer implements Proposer {
       else if (/^centrar$/i.test(part)) style['text-align'] = 'center';
     }
     if (Object.keys(style).length) ops.push({ op: 'setOwnStyle', id: target, device: req.device, style });
+    for (const [dev, st] of Object.entries(byDevice)) {
+      const d = AI_DEVICES.find((x) => x === dev);
+      if (d && st && Object.keys(st).length) ops.push({ op: 'setOwnStyle', id: target, device: d, style: st });
+    }
     if (text.includes('[simulado:vazio]')) ops.length = 0;
     const part = req.context.part ? ` (parte ${req.context.part.index} de ${req.context.part.total})` : '';
     return respond({

@@ -778,3 +778,24 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ui-primary); }
 
 /* Aviso de versão nova publicada (separadores abertos com a anterior). */
 .update-notice { position: fixed; z-index: 50; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; border-radius: var(--ui-radius); border: 1px solid var(--ui-primary-line); background: var(--ui-popover); color: var(--ui-text); box-shadow: var(--ui-shadow); max-width: calc(100vw - 32px); font-size: 13px; }
+
+/* Configurações de IA: botão «Ativo» por fornecedor e resumo da escolha automática. */
+.ai-provider-toggle { flex-wrap: wrap; margin: 4px 0 8px; padding: 10px 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); background: var(--ui-surface-2); }
+.ai-provider-toggle small { flex-basis: 100%; font-weight: 400; margin-left: 28px; }
+.ai-routing { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.ai-routing-item { padding: 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); background: var(--ui-surface-2); }
+.ai-routing-item p { margin: 6px 0; font-weight: 600; }
+.ai-routing-item ol { margin: 6px 0 0; padding-left: 18px; }
+.ai-route-on, .ai-state.is-on { color: var(--ui-success); }
+.ai-route-off, .ai-state.is-off { color: var(--ui-muted); }
+.ai-state { margin: 0 0 6px; font-weight: 700; font-size: 15px; }
+
+/* Seletor de fonte com Google Fonts */
+.font-picker { display: grid; gap: 6px; min-width: 0; }
+.font-picker .select { width: 100%; }
+.font-picker-other { display: flex; gap: 6px; min-width: 0; }
+.font-picker-other .input { flex: 1; min-width: 0; }
+.ai-preview-devices { margin-bottom: 8px; }
+.ai-preview-devices button { height: 28px; padding: 0 10px; border: 0; border-radius: calc(var(--ui-radius) - 2px); background: transparent; color: var(--ui-text-muted, var(--ui-text)); cursor: pointer; font-size: 12px; font-weight: 500; }
+.ai-preview-devices button.is-active { background: var(--ui-surface-3); color: var(--ui-text); }
+.ai-preview-devices button:focus-visible { outline: none; box-shadow: var(--ui-focus); }

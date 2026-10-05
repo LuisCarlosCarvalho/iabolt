@@ -211,7 +211,8 @@ describe('Assistente IA · validação contra o documento', () => {
     expect(validateForDocument(e, req, respond(req, [{ op: 'setText', id: 'outro', text: 'x' }]))[0]).toMatch(/fora do âmbito/);
     expect(validateForDocument(e, req, respond(req, [{ op: 'setLink', id: h1.getId(), href: '/x' }]))[0]).toMatch(/não é uma ligação/);
     expect(validateForDocument(e, req, respond(req, [{ op: 'setOwnStyle', id: h1.getId(), device: 'desktop', style: { color: 'var(--inventada)' } }]))[0]).toMatch(/variável desconhecida/);
-    expect(validateForDocument(e, req, respond(req, [{ op: 'setOwnStyle', id: h1.getId(), device: 'mobile', style: { color: 'red' } }]))[0]).toMatch(/dispositivo/);
+    // Responsivo: ajustes de telemóvel/tablet na mesma proposta que a base são aceites.
+    expect(validateForDocument(e, req, respond(req, [{ op: 'setOwnStyle', id: h1.getId(), device: 'desktop', style: { 'font-size': '48px' } }, { op: 'setOwnStyle', id: h1.getId(), device: 'mobile', style: { 'font-size': '30px' } }]))).toEqual([]);
     // Uma imagem não é um fundo, e um texto não recebe imagem de fundo.
     expect(validateForDocument(e, req, respond(req, [{ op: 'replaceImage', id: h1.getId(), image: { kind: 'choose' } }]))[0]).toMatch(/não é uma imagem/);
     expect(validateForDocument(e, req, respond(req, [{ op: 'setBackgroundImage', id: h1.getId(), device: 'desktop', image: { kind: 'choose' } }]))[0]).toMatch(/fundos só em/);
@@ -314,6 +315,28 @@ describe('Assistente IA · pré-visualização e aplicação atómica', () => {
     expect(JSON.stringify(getProjectData(e))).toBe(before);
     expect(e.UndoManager.getStackGroup().length).toBe(stack);
     expect(e.UndoManager.hasRedo()).toBe(true);
+  });
+
+  it('responsivo: base + telemóvel; falha a meio não deixa nada; o pedido só de telemóvel não toca no computador', async () => {
+    const e = await nimbus();
+    const h1 = firstOf(e, 'h1');
+    const before = JSON.stringify(getProjectData(e));
+    const ops: AiOperation[] = [
+      { op: 'setOwnStyle', id: h1.getId(), device: 'desktop', style: { 'font-size': '64px' } },
+      { op: 'setOwnStyle', id: h1.getId(), device: 'mobile', style: { 'font-size': '30px' } },
+    ];
+    expect(() => applyOperations(e, ops, new Map(), { failAfter: 1 })).toThrow(/Falha simulada/);
+    await tick();
+    expect(JSON.stringify(getProjectData(e))).toBe(before);
+    expect(getOwnStyle(e, h1, 'desktop')['font-size']).toBeUndefined();
+    expect(getOwnStyle(e, h1, 'mobile')['font-size']).toBeUndefined();
+
+    const desktopBefore = getOwnStyle(e, h1, 'desktop');
+    applyOperations(e, [{ op: 'setOwnStyle', id: h1.getId(), device: 'mobile', style: { 'font-size': '30px' } }], new Map());
+    await tick();
+    expect(getOwnStyle(e, h1, 'mobile')['font-size']).toBe('30px');
+    expect(getOwnStyle(e, h1, 'desktop')).toEqual(desktopBefore);
+    expect(getOwnStyle(e, h1, 'tablet')['font-size']).toBeUndefined();
   });
 
   it('estrutura: inserir (e editar o novo pelo id proposto), mover, duplicar e eliminar numa secção; um só desfazer', async () => {

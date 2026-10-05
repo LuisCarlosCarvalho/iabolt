@@ -420,7 +420,8 @@ export function checkProposalShape(req: AiProposeRequest, proposal: AiProposal, 
         if (!c?.tag) errors.push(`${n}: o nível só se altera em títulos e parágrafos.`);
         break;
       case 'setOwnStyle': {
-        if (op.device !== req.device) errors.push(`${n}: dispositivo diferente do escolhido.`);
+        // Responsivo: a base («desktop», todos os ecrãs) e os ajustes de tablet/telemóvel podem vir
+        // na mesma proposta (o dispositivo de cada operação é validado pelo esquema).
         const entries = Object.entries(op.style);
         if (entries.length === 0) errors.push(`${n}: sem propriedades.`);
         for (const [prop, value] of entries) {
@@ -438,7 +439,6 @@ export function checkProposalShape(req: AiProposeRequest, proposal: AiProposal, 
         if (!c?.image) errors.push(`${n}: este elemento não é uma imagem (use setBackgroundImage para fundos).`);
         break;
       case 'setBackgroundImage':
-        if (op.device !== req.device) errors.push(`${n}: dispositivo diferente do escolhido.`);
         if (c?.image || c?.text) errors.push(`${n}: fundos só em secções e contentores.`);
         break;
       case 'insertBlock': {

@@ -204,8 +204,9 @@ export function AiAssistantPanel({
     setInstruction(prefillText);
   }
   // O dispositivo do assistente acompanha o do editor, salvo escolha própria.
-  const [override, setOverride] = useState<{ from: DeviceId; value: AiDevice } | null>(null);
-  const device: AiDevice = override && override.from === editingDevice ? override.value : editingDevice;
+  // Responsivo automático: o pedido é sempre sobre a BASE (todos os ecrãs) e o assistente acrescenta
+  // os ajustes de tablet e telemóvel quando são precisos (ou só esse ecrã, se o pedido o disser).
+  const device: AiDevice = 'desktop';
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const [choices, setChoices] = useState<Map<string, ImageChoice>>(new Map());
   // Proposta passada pela janela rápida: o mesmo pedido, o mesmo elemento, já validada no envio.
@@ -451,16 +452,10 @@ export function AiAssistantPanel({
             void propose();
           }}
         >
-          <label className="field">
-            <span>Estilos no dispositivo</span>
-            <select className="select" value={device} disabled={busy} onChange={(e) => setOverride({ from: editingDevice, value: DEVICES.find((d) => d.id === e.target.value)?.id ?? 'desktop' })} data-testid="ai-device">
-              {DEVICES.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <p className="hint ai-responsive" data-testid="ai-responsive">
+            Responsivo automático: as alterações valem para todos os ecrãs e o assistente ajusta tablet e telemóvel quando é preciso. Para um só ecrã, diga-o no pedido
+            (ex.: «no telemóvel»).
+          </p>
           <label className="field">
             <span>Pedido</span>
             <textarea
@@ -642,6 +637,8 @@ function ProposalView({
   onDiscard: () => void;
 }) {
   const [view, setView] = useState<'before' | 'after'>('after');
+  /** Ecrã da pré-visualização (o resultado é responsivo: vê-se em cada um antes de aplicar). */
+  const [previewDevice, setPreviewDevice] = useState<DeviceId>(proposal.device);
   const [zoomed, setZoomed] = useState(false);
   const [applying, setApplying] = useState(false);
   const ops = proposal.ops;
@@ -754,14 +751,21 @@ function ProposalView({
             </p>
           ) : preview ? (
             <>
-              <BeforeAfter view={view} onView={setView} before={preview.before} after={preview.after} device={proposal.device} testId="ai-preview" />
+              <div className="segmented ai-preview-devices" role="radiogroup" aria-label="Ecrã da pré-visualização" data-testid="ai-preview-devices">
+                {DEVICES.map((d) => (
+                  <button key={d.id} type="button" role="radio" aria-checked={previewDevice === d.id} className={previewDevice === d.id ? 'is-active' : ''} onClick={() => setPreviewDevice(d.id)} data-testid={`ai-preview-device-${d.id}`}>
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+              <BeforeAfter view={view} onView={setView} before={preview.before} after={preview.after} device={previewDevice} testId="ai-preview" />
               <Button variant="ghost" onClick={() => setZoomed(true)} data-testid="ai-zoom">
                 <Maximize2 aria-hidden="true" /> Ampliar pré-visualização
               </Button>
               <Modal wide open={zoomed} title="Pré-visualização da proposta" onClose={() => setZoomed(false)}>
                 {zoomed && (
                   <div className="ai-zoom" data-testid="ai-zoom-dialog">
-                    <BeforeAfter view={view} onView={setView} before={preview.before} after={preview.after} device={proposal.device} testId="ai-zoom-preview" maxHeight={Math.round(window.innerHeight * 0.65)} />
+                    <BeforeAfter view={view} onView={setView} before={preview.before} after={preview.after} device={previewDevice} testId="ai-zoom-preview" maxHeight={Math.round(window.innerHeight * 0.65)} />
                   </div>
                 )}
               </Modal>

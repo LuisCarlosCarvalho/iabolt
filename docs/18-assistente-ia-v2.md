@@ -272,3 +272,71 @@ Os custos, preços, reservas, orçamento e o consumo por pedido ficam visíveis 
   - a vista de administrador no site publicado.
 
   O que configurar está em `docs/10`.
+
+## Fornecedores ativos e escolha automática por função (05/10/2026, por publicar)
+
+**Pedido:** colocar a chave em qualquer fornecedor, um só botão ativo/inativo por fornecedor, vários ativos ao mesmo tempo e o melhor usado para cada função.
+
+**Diagnóstico.** O servidor já aceitava chaves de qualquer fornecedor. A interface dava a ideia contrária:
+- «Guardar chave» ficava desativado até haver 20 caracteres;
+- os cartões sem chave diziam «Nada deste fornecedor pode ser ativado»;
+- a configuração tinha um único fornecedor/modelo de edição, um de imagens e um interruptor geral.
+
+**Agora:**
+- **Cada fornecedor:**
+  - chave: guardar, testar sem custo, substituir e remover, como antes, cifrada no Vault;
+  - botão **«Ativo»**, que só liga com a chave reconhecida;
+  - «Guardar chave» fica disponível assim que se escreve; uma chave incompleta é explicada.
+- **Escolha automática no servidor**, migração `20261005120000_ia_fornecedores_ativos.sql`:
+  - para cada função, o servidor usa o melhor fornecedor ativo com chave reconhecida, por `ai_models.preference`;
+  - edição: Claude Sonnet 5.5 → GPT-6.1 Sol → Gemini 3.8 Flash;
+  - imagens: Gemini 3.1 Flash Image → Gemini 3 Pro Image (só a Google gera imagens);
+  - a escolha é recalculada quando um fornecedor é ativado/desativado ou a chave muda de estado: guardada, recusada num teste ou removida;
+  - um fornecedor desativado ou com a chave recusada passa a função para o ativo seguinte;
+  - não há troca a meio de um pedido nem repetição noutro fornecedor depois de um erro.
+- **As funções `ai-propose` e `ai-image` não mudam:** continuam a ler `ai_settings`, agora calculado pela escolha automática.
+- **O assistente está ativo quando há pelo menos um fornecedor ativo para edição.** O interruptor geral deixa de existir na interface; para desligar tudo, desativam-se os fornecedores.
+- **Compatibilidade com o painel anterior:** ligar a edição ou as imagens pela ação «update» marca esse fornecedor como ativo (gatilho `ai__sync_enabled`).
+- **Estado de produção preservado pela migração:** o Anthropic, em uso, fica ativo e a edição continua com o Claude Sonnet 5.5.
+
+**Publicação necessária (por autorizar):**
+1. migração `20261005120000`;
+2. função `ai-admin`, com a ação nova `setEnabled`;
+3. frontend.
+
+`ai-propose` e `ai-image` não são republicadas.
+
+**Testes (locais, sem chamadas pagas):**
+- `tests/db/ai_routing.test.ts` (6, PGlite com as migrações reais): estado de produção preservado; chave noutro fornecedor com o Claude ativo; ativar, desativar e passar para o seguinte; chave recusada ou removida; só administradores; auditoria; painel anterior;
+- `tests/e2e/ai-settings.spec.ts` (2, reescrito para a interface nova);
+- `npm run check` exit 0 (220 testes).
+
+## Gemini HTTP 400, responsivo automático e Google Fonts (05/10/2026, por publicar)
+
+### Gemini: «Request contains an invalid argument» (HTTP 400)
+- Causa: o esquema da ferramenta enviado à API Interactions usava palavras de JSON Schema que o Gemini não aceita (`const`, `pattern`, `minLength`, `maxLength`) e um objeto `style` sem `properties`. O teste de chave no painel passava porque não envia o esquema.
+- Correção: `geminiToolSchema()` (`supabase/functions/_shared/ai/google.ts`) converte `const` em `enum` de um valor, retira as palavras não suportadas e dá ao `style` as propriedades de `AI_STYLE_PROPS`. A proposta continua a ser validada no servidor com o contrato completo.
+- Teste unitário: «Gemini: esquema no subconjunto aceite…». Falta validar com um pedido real depois de republicar `ai-propose`.
+
+### Responsivo automático (sem «Estilos no dispositivo»)
+- O seletor de dispositivo foi retirado do painel e da edição rápida: o pedido é sempre sobre a base (`desktop`, todos os ecrãs).
+- As instruções (regra 7) exigem que o modelo acrescente, na mesma proposta, ajustes `tablet` (≤ 992 px) e `mobile` (≤ 480 px) quando muda tamanhos, larguras, espaçamentos ou colunas. Se o pedido referir um ecrã («no telemóvel»), só esse muda.
+- O contrato deixou de exigir `op.device === req.device` (o v1 mantém a regra antiga).
+- A pré-visualização tem os separadores Computador/Tablet/Telemóvel. A verificação «alteração invisível» usa o ecrã visível no canvas.
+- Simulador: `telemóvel: tamanho 30px` / `tablet: …` geram operações só desse ecrã.
+
+### Google Fonts no seletor de fonte
+- O inspetor e os Estilos globais usam `FontPicker`, com fontes do sistema, do projeto (@font-face) e do Google Fonts (36 populares, ou «Outra do Google Fonts…» pelo nome).
+- Ao escolher uma família, `ensureGoogleFont` (`src/engine/googleFonts.ts`) pede o CSS a `fonts.googleapis.com` e acrescenta ao projeto as regras @font-face (ficheiros em `fonts.gstatic.com`), uma vez por família. Só depois grava `font-family`. Assim, o canvas, as pré-visualizações e o site publicado usam a mesma fonte.
+- Os nomes são validados (letras, números, espaços, hífenes). Uma família inexistente mostra um erro e não altera o projeto.
+
+### Testes desta ronda (locais; sem chamadas pagas)
+- Unitários: `googleFonts.test.ts` (novo), `aiProviders.test.ts` (esquema Gemini) e `aiAssistant.test.ts`. Nesta última, a expectativa antiga de recusar ajustes de telemóvel foi substituída pela regra nova.
+- E2E:
+  - `inspector.spec.ts`: Google Fonts com o CSS da Google simulado por `page.route`, mantém-se depois de recarregar;
+  - `ai-assistant.spec.ts`: base + telemóvel na mesma proposta e separadores da pré-visualização.
+
+### Publicação necessária (não feita; precisa de autorização)
+- Migração `20261005120000_ia_fornecedores_ativos.sql` (fazer primeiro um dry-run).
+- Funções `ai-admin` e `ai-propose`.
+- Frontend: push para `master`.

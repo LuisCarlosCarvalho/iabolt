@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { AiProposeRequest } from '../../supabase/functions/_shared/ai/contract.ts';
 
 /**
  * [simulado] Assistente IA, versão 2, no browser (modo local): âmbitos (elemento, secção, página,
@@ -361,4 +362,38 @@ test('[simulado] espera: progresso visível; sem envios duplicados; cancelar des
   await expect(frame(page).locator('h1').first()).not.toHaveText('Nunca aplicado');
   await expect(page.getByTestId('undo')).toBeDisabled();
   expect(await page.evaluate(() => window.__boltAiSent)).toBe(1);
+});
+
+test('[simulado] caso do print: sem elemento selecionado, o âmbito Página ou Site inteiro e o pedido chegam intactos ao pedido enviado', async ({ page }) => {
+  const instruction = 'Pode fazer uma mudança no website e colocar fotos relacionadas com o assunto?';
+  await createNimbus(page, `IA print ${Date.now()}`);
+  await openAi(page);
+  // Nada selecionado: o âmbito «Elemento» não está disponível, «Página» e «Site inteiro» estão.
+  await expect(page.getByTestId('ai-no-selection')).toBeVisible();
+  await expect(page.getByTestId('ai-propose')).toBeDisabled();
+
+  await page.getByTestId('ai-scope-kind-page').click();
+  await expect(page.getByTestId('ai-scope-name')).toContainText('Página · ');
+  await ask(page, instruction);
+  await expect(page.getByTestId('ai-summary').or(page.getByTestId('ai-error')).or(page.getByTestId('ai-proposal-scope')).first()).toBeVisible();
+  // O pedido enviado, validado pelo contrato (o mesmo esquema que o servidor aplica).
+  const sent = async () => AiProposeRequest.array().parse(JSON.parse(await page.evaluate(() => JSON.stringify(window.__boltAiRequests ?? []))));
+  let reqs = await sent();
+  expect(reqs).toHaveLength(1);
+  const first = reqs[0];
+  expect(first?.scope).toEqual({ kind: 'page', pageId: first?.context.pages[0]?.id });
+  expect(first?.instruction).toBe(instruction);
+  expect(first?.device).toBe('desktop');
+  expect(first?.context.pages[0]?.nodes.length).toBeGreaterThan(5);
+
+  // Simulador: sem comandos reconhecidos não há operações (o modelo real é que propõe as alterações).
+  await expect(page.getByTestId('ai-summary')).toContainText('nada a alterar');
+  await page.getByRole('button', { name: 'Descartar', exact: true }).click();
+  await page.getByTestId('ai-scope-kind-site').click();
+  await expect(page.getByTestId('ai-scope-name')).toContainText('Site inteiro');
+  await ask(page, instruction);
+  await expect.poll(async () => (await sent())[0]?.scope.kind).toBe('site');
+  reqs = await sent();
+  expect(reqs[0]?.scope).toEqual({ kind: 'site' });
+  expect(reqs[0]?.instruction).toBe(instruction);
 });

@@ -67,6 +67,7 @@ const v2: AdminDeps = {
   },
   removeKey: (actor, provider, version) => rpc('ai_admin_remove_key_v2', { p_actor: actor, p_provider: provider, p_expected_version: version }),
   recordTest: (actor, provider, ok, detail) => rpc('ai_admin_record_test_v2', { p_actor: actor, p_provider: provider, p_ok: ok, p_detail: detail }),
+  setEnabled: (actor, provider, enabled) => rpc('ai_admin_set_provider_enabled_v2', { p_actor: actor, p_provider: provider, p_enabled: enabled }),
   providerKey,
   checkKey: (provider, model, key, kind) => checkProviderKey(provider, { apiKey: key, model, kind, fetch }),
   usage: (actor) => rpc('ai_admin_usage', { p_actor: actor }),

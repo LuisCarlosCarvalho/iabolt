@@ -55,6 +55,8 @@ export const AdminRequest = z.discriminatedUnion('action', [
   z.object({ action: z.literal('setKey'), provider: Provider, key: KeyText }).strict(),
   z.object({ action: z.literal('removeKey'), provider: Provider, expectedVersion: z.number().int() }).strict(),
   z.object({ action: z.literal('test'), provider: Provider }).strict(),
+  /** Ativar/desativar um fornecedor; o servidor escolhe o melhor ativo para cada função. */
+  z.object({ action: z.literal('setEnabled'), provider: Provider, enabled: z.boolean() }).strict(),
   z.object({ action: z.literal('usage') }).strict(),
   z.object({ action: z.literal('audit') }).strict(),
 ]);
@@ -74,6 +76,8 @@ export const AdminKey = z.object({
   status: z.enum(['none', 'valid', 'invalid']),
   tested_at: z.string().nullable(),
   updated_at: z.string().nullable(),
+  /** O administrador ativou o fornecedor (migração 20261005120000; ausente num servidor anterior). */
+  enabled: z.boolean().optional(),
 });
 export type AdminKey = z.infer<typeof AdminKey>;
 
@@ -112,9 +116,21 @@ export const AdminModel = z.object({
   /** Teto (tarifa publicada) por imagem, USD. */
   price_image: num.nullable(),
   note: z.string().nullable(),
+  /** Ordem de escolha automática por função (menor = melhor); null = nunca escolhido sozinho. */
+  preference: num.nullable().optional(),
   prices: z.object({ input: num, output: num, cacheRead: num, cacheWrite: num }),
 });
 export type AdminModel = z.infer<typeof AdminModel>;
+
+/**
+ * Modelo que serve cada função, tal como o servidor o escolheu (melhor fornecedor ativo com chave
+ * reconhecida). `null` = função indisponível.
+ */
+export function routing(view: AdminView): { edit: AdminModel | null; image: AdminModel | null } {
+  const s = view.settings;
+  const find = (provider: string | null, model: string | null) => view.models.find((m) => m.provider === provider && m.model === model) ?? null;
+  return { edit: s.enabled ? find(s.provider, s.model) : null, image: s.image_enabled ? find(s.image_provider, s.image_model) : null };
+}
 
 export const AdminView = z.object({ settings: AdminSettings, models: z.array(AdminModel) });
 export type AdminView = z.infer<typeof AdminView>;
@@ -183,6 +199,7 @@ export interface AdminDeps {
   discardKey(actor: string, provider: ProviderId, secretId: string, reason: string): Promise<void>;
   removeKey(actor: string, provider: ProviderId, expectedVersion: number): Promise<unknown>;
   recordTest(actor: string, provider: ProviderId, ok: boolean, detail: string): Promise<unknown>;
+  setEnabled(actor: string, provider: ProviderId, enabled: boolean): Promise<unknown>;
   providerKey(provider: ProviderId): Promise<string | null>;
   checkKey(provider: ProviderId, model: string, key: string, kind: 'edit' | 'image'): Promise<KeyCheck>;
   usage(actor: string): Promise<unknown>;
@@ -215,6 +232,7 @@ function mapError(e: unknown): AdminResult {
   if (/invalid_field|invalid_patch/.test(msg)) return fail(400, 'invalid_field', 'Campo não permitido.');
   if (/foreign key|violates foreign/.test(msg)) return fail(400, 'invalid_model', 'Modelo não suportado.');
   if (/no_key/.test(msg)) return fail(400, 'no_key', 'Não há chave configurada para este fornecedor.');
+  if (/key_not_valid/.test(msg)) return fail(400, 'key_not_valid', 'Só se ativa um fornecedor com a chave reconhecida. Guarde (ou teste) a chave primeiro.');
   return fail(500, 'internal', 'Não foi possível concluir a operação. Nada foi alterado.');
 }
 
@@ -268,6 +286,18 @@ export async function handleAdmin(authHeader: string | null, rawBody: string, de
       case 'removeKey': {
         const view = parseView(await deps.removeKey(actor, req.provider, req.expectedVersion));
         return { status: 200, body: { view, message: `Chave ${PROVIDER_LABEL[req.provider]} removida. As outras chaves mantêm-se; o que a usava ficou desativado.` } };
+      }
+      case 'setEnabled': {
+        const view = parseView(await deps.setEnabled(actor, req.provider, req.enabled));
+        const r = routing(view);
+        const label = PROVIDER_LABEL[req.provider];
+        return {
+          status: 200,
+          body: {
+            view,
+            message: `${label} ${req.enabled ? 'ativado' : 'desativado'}. Edição: ${r.edit ? r.edit.label : 'indisponível (nenhum fornecedor ativo com chave reconhecida)'}. Imagens: ${r.image ? r.image.label : 'indisponíveis'}.`,
+          },
+        };
       }
       case 'usage': {
         const usage = AdminUsage.parse(await deps.usage(actor));

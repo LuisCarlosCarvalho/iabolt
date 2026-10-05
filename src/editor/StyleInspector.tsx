@@ -6,6 +6,7 @@ import { isGlobalSelector } from '../engine/globalStyles';
 import { createContinuousEdit, styleSources, type ValueSource } from '../engine/styleSources';
 import { deviceById, getOwnStyle, type DeviceId, type EditableProp, type StylePatch } from '../engine/styles';
 import { DraftInput } from './DraftInput';
+import { FontPicker } from './FontPicker';
 
 /**
  * Inspetor de estilos: edita a regra própria do elemento (`#id`) no dispositivo em edição,
@@ -43,12 +44,6 @@ export function toHex(color: string): string {
   return `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`;
 }
 
-export const FONTS: Array<[string, string]> = [
-  ["'Inter', 'Segoe UI', system-ui, sans-serif", 'Sem serifa (Inter)'],
-  ["Georgia, 'Times New Roman', serif", 'Com serifa (Georgia)'],
-  ["'Trebuchet MS', 'Segoe UI', sans-serif", 'Humanista (Trebuchet)'],
-  ["ui-monospace, 'Cascadia Code', Consolas, monospace", 'Monoespaçada'],
-];
 const WEIGHTS: Array<[string, string]> = [
   ['400', 'Normal'],
   ['500', 'Médio'],
@@ -192,6 +187,24 @@ function SelectField({ ctx, prop, label, options }: { ctx: Ctx; prop: EditablePr
           </option>
         ))}
       </select>
+    </Field>
+  );
+}
+
+/** Fonte: sistema, projeto ou biblioteca do Google Fonts (carregada no projeto ao escolher). */
+function FontField({ ctx }: { ctx: Ctx }) {
+  const own = ctx.own['font-family'] ?? '';
+  const inherited = ctx.sources.get('font-family')?.value ?? '';
+  return (
+    <Field ctx={ctx} prop="font-family" label="Fonte">
+      <FontPicker
+        editor={ctx.editor}
+        value={own}
+        emptyLabel={inherited ? `Herdado (${(inherited.split(',')[0] ?? '').trim().replace(/^['"]|['"]$/g, '')})` : 'Herdado'}
+        label="Fonte"
+        testId="style-font-family"
+        onChange={(v) => ctx.commit({ 'font-family': v })}
+      />
     </Field>
   );
 }
@@ -454,7 +467,7 @@ export function StyleInspector({
           'typography',
           'Tipografia',
           <>
-            <SelectField ctx={ctx} prop="font-family" label="Fonte" options={FONTS} />
+            <FontField ctx={ctx} />
             <div className="row2">
               <TextField ctx={ctx} prop="font-size" label="Tamanho da letra" />
               <SelectField ctx={ctx} prop="font-weight" label="Peso" options={WEIGHTS} />

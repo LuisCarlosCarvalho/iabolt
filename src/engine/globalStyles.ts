@@ -177,7 +177,8 @@ export function firstFamily(value: string): string {
   return (value.split(',')[0] ?? '').trim().replace(/^['"]|['"]$/g, '');
 }
 
-function projectFontFamilies(editor: Editor): string[] {
+/** Famílias com @font-face no projeto (importadas ou escolhidas no Google Fonts). */
+export function projectFontFamilies(editor: Editor): string[] {
   const out = new Set<string>();
   for (const r of editor.Css.getRules()) {
     if (r.get('atRuleType') !== 'font-face') continue;
