@@ -151,6 +151,10 @@ export function createLocalAiAdmin(checkKey?: (key: string, provider: ProviderId
   };
 
   return {
+    // Modo local: sem fornecedor real, não há diagnóstico (o servidor é que o faz).
+    diagnose: async () => {
+      throw new Error('diagnose_local');
+    },
     getUser: async () => ({ id: ACTOR }),
     isAdmin: async (id) => id === ACTOR,
     async get(actor) {

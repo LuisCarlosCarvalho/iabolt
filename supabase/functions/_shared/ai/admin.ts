@@ -57,6 +57,8 @@ export const AdminRequest = z.discriminatedUnion('action', [
   z.object({ action: z.literal('test'), provider: Provider }).strict(),
   /** Ativar/desativar um fornecedor; o servidor escolhe o melhor ativo para cada função. */
   z.object({ action: z.literal('setEnabled'), provider: Provider, enabled: z.boolean() }).strict(),
+  // Diagnóstico progressivo do pedido ao Gemini (PAGO, teto DIAG_MAX_USD; só a pedido explícito).
+  z.object({ action: z.literal('diagnose'), provider: z.literal('google'), maxUsd: z.number().positive().max(0.02) }).strict(),
   z.object({ action: z.literal('usage') }).strict(),
   z.object({ action: z.literal('audit') }).strict(),
 ]);
@@ -133,6 +135,32 @@ export function routing(view: AdminView): { edit: AdminModel | null; image: Admi
 }
 
 export const AdminView = z.object({ settings: AdminSettings, models: z.array(AdminModel) });
+
+/** Teto do diagnóstico progressivo do Gemini (USD), verificado no servidor antes de cada degrau. */
+export const DIAG_MAX_USD = 0.02;
+
+/** Relatório do diagnóstico progressivo (sem chaves; a resposta de erro do fornecedor, se houver). */
+export const AdminDiagnosis = z.object({
+  model: z.string(),
+  endpoint: z.string(),
+  steps: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      http: z.number().nullable(),
+      accepted: z.boolean(),
+      detail: z.string(),
+      inputTokens: z.number(),
+      outputTokens: z.number(),
+      costUsd: z.number(),
+    }),
+  ),
+  firstRejected: z.string().nullable(),
+  stoppedForBudget: z.boolean(),
+  costUsd: z.number(),
+  maxUsd: z.number(),
+});
+export type AdminDiagnosis = z.infer<typeof AdminDiagnosis>;
 export type AdminView = z.infer<typeof AdminView>;
 
 export const AdminUsage = z.object({
@@ -176,6 +204,7 @@ export interface AdminBody {
   message?: string;
   error?: string;
   code?: string;
+  diagnosis?: AdminDiagnosis;
 }
 
 export const TEST_COST_NOTE = 'Sem custo: consulta o fornecedor sem gerar texto nem imagens.';
@@ -206,6 +235,8 @@ export interface AdminDeps {
   /** Última utilização real bem-sucedida por fornecedor/modelo/tipo. */
   generation(actor: string): Promise<unknown>;
   audit(actor: string): Promise<unknown>;
+  /** Diagnóstico progressivo (pago, com teto) com a chave guardada; a chave nunca sai do servidor. */
+  diagnose(model: string, key: string, prices: { input: number; output: number }, maxUsd: number): Promise<AdminDiagnosis>;
 }
 
 /** Impressão digital de uma chave (16 hex do SHA-256): identifica sem revelar. */
@@ -326,6 +357,17 @@ export async function handleAdmin(authHeader: string | null, rawBody: string, de
         const old = before.settings.keys[provider];
         const kept = old.configured ? ` Mantém-se a chave anterior (…${old.last4 ?? ''}).` : ' Não há chave configurada.';
         return fail(422, 'key_rejected', `A chave nova (${label}) não foi aceite: ${check.reason}${kept}`, { view, test: { ok: false, definitive: check.definitive, message: check.reason, cost: TEST_COST_NOTE } });
+      }
+      case 'diagnose': {
+        const view = parseView(await deps.get(actor));
+        const key = await deps.providerKey('google');
+        if (!key) return fail(400, 'no_key', 'Não há chave configurada para a Google.', { view });
+        // O modelo de edição em uso, se for da Google; senão, o primeiro modelo de edição da Google.
+        const s = view.settings;
+        const model = (s.provider === 'google' ? view.models.find((m) => m.provider === 'google' && m.model === s.model) : undefined) ?? view.models.find((m) => m.provider === 'google' && m.capability === 'edit');
+        if (!model) return fail(400, 'no_model', 'Não há modelos de edição da Google.', { view });
+        const diagnosis = AdminDiagnosis.parse(await deps.diagnose(model.model, key, { input: model.prices.input, output: model.prices.output }, Math.min(req.maxUsd, DIAG_MAX_USD)));
+        return { status: 200, body: { view, diagnosis } };
       }
       case 'test': {
         const { provider } = req;

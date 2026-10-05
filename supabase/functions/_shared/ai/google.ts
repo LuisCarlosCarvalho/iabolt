@@ -83,7 +83,7 @@ const interactionOf = (body: unknown): object => {
  * Consumo: entrada total ao preço de entrada (o desconto de cache não é aplicado: nunca abaixo do
  * real) e saída + raciocínio ao preço de saída.
  */
-function usageOf(it: object): { usage: TokenUsage; known: boolean } {
+export function geminiUsage(it: object): { usage: TokenUsage; known: boolean } {
   const u = obj(Reflect.get(it, 'usage'));
   if (!u || typeof Reflect.get(u, 'total_input_tokens') !== 'number' || typeof Reflect.get(u, 'total_output_tokens') !== 'number') {
     return { usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, known: false };
@@ -141,7 +141,7 @@ export function googleProvider(opts: { apiKey: string; model: string; fetch: Fet
     model: opts.model,
     async propose(call) {
       const it = interactionOf(await post(opts, googleRequestBody(opts.model, call.system, call.user, call.maxOutputTokens), call.timeoutMs, 'texto'));
-      const { usage, known } = usageOf(it);
+      const { usage, known } = geminiUsage(it);
       const truncated = Reflect.get(it, 'status') === 'incomplete';
       const steps = stepsOf(it);
       const fc = steps.find((s) => Reflect.get(s, 'type') === 'function_call' && Reflect.get(s, 'name') === TOOL_NAME);

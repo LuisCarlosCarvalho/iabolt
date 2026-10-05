@@ -35,7 +35,7 @@ describe('[simulado] ai-admin · autorização', () => {
       getUser: async (h) => (h === 'Bearer comum' ? { id: 'utilizador-comum' } : null),
       isAdmin: async () => false,
     };
-    for (const name of ['get', 'update', 'stageKey', 'activateKey', 'discardKey', 'removeKey', 'recordTest', 'providerKey', 'checkKey', 'usage', 'generation', 'audit'] as const) {
+    for (const name of ['get', 'update', 'stageKey', 'activateKey', 'discardKey', 'removeKey', 'recordTest', 'providerKey', 'checkKey', 'usage', 'generation', 'audit', 'diagnose'] as const) {
       const original = commonUser[name];
       Object.assign(commonUser, {
         [name]: (...args: never[]) => {
@@ -51,6 +51,7 @@ describe('[simulado] ai-admin · autorização', () => {
       { action: 'setKey', provider: 'anthropic', key: KEY_A },
       { action: 'removeKey', provider: 'openai', expectedVersion: 1 },
       { action: 'test', provider: 'google' },
+      { action: 'diagnose', provider: 'google', maxUsd: 0.02 },
       { action: 'usage' },
       { action: 'audit' },
     ];
@@ -258,5 +259,31 @@ describe('[simulado] ai-admin · geração validada', () => {
     // Sem pedidos reais (simulação local): por validar, mesmo com a chave reconhecida.
     await send(base, { action: 'setKey', provider: 'anthropic', key: KEY_A });
     expect((await send(base, { action: 'usage' })).body.generation).toEqual([]);
+  });
+});
+
+describe('[simulado] ai-admin · diagnóstico progressivo do Gemini (pago, com teto)', () => {
+  it('só Google, teto máximo 0,02 USD, usa o modelo de edição em uso e os seus preços; sem chave → no_key', async () => {
+    const calls: Array<{ model: string; prices: { input: number; output: number }; maxUsd: number; keyEnds: string }> = [];
+    const base = createLocalAiAdmin();
+    const deps: AdminDeps = {
+      ...base,
+      diagnose: async (model, key, prices, maxUsd) => {
+        calls.push({ model, prices, maxUsd, keyEnds: key.slice(-4) });
+        return { model, endpoint: '/v1beta/interactions', steps: [], firstRejected: null, stoppedForBudget: false, costUsd: 0, maxUsd };
+      },
+    };
+    expect((await send(deps, { action: 'diagnose', provider: 'google', maxUsd: 0.02 })).body.code).toBe('no_key');
+    expect((await send(deps, { action: 'diagnose', provider: 'google', maxUsd: 0.5 })).body.code).toBe('bad_request');
+    expect((await send(deps, { action: 'diagnose', provider: 'anthropic', maxUsd: 0.01 })).body.code).toBe('bad_request');
+    await send(deps, { action: 'setKey', provider: 'google', key: KEY_GOOGLE });
+    const r = await send(deps, { action: 'diagnose', provider: 'google', maxUsd: 0.02 });
+    expect(r.status).toBe(200);
+    expect(r.body.diagnosis?.endpoint).toBe('/v1beta/interactions');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.model).toMatch(/^gemini-/);
+    expect(calls[0]?.maxUsd).toBe(0.02);
+    expect(calls[0]?.keyEnds).toBe('GGGG');
+    expect(JSON.stringify(r.body)).not.toContain(KEY_GOOGLE);
   });
 });

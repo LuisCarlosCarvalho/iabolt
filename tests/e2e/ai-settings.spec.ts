@@ -176,3 +176,23 @@ test('[simulado] vários fornecedores ativos ao mesmo tempo: chave em qualquer u
   for (const k of [KEY_A, KEY_OPENAI, KEY_GOOGLE]) expect(final).not.toContain(k);
   expect(external).toEqual([]);
 });
+
+test('[simulado] diagnóstico do pedido ao Gemini: só no cartão Google com chave, pago com teto explícito, bloqueado até autorizar', async ({ page }) => {
+  const external = watchExternal(page);
+  await openSettings(page);
+  await expect(page.getByTestId('ai-diagnosis')).toHaveCount(0);
+  await saveKey(page, 'google', KEY_GOOGLE);
+  await expect(page.getByTestId('ai-key-status-google')).toContainText('Chave configurada');
+  const diag = page.getByTestId('ai-provider-google').getByTestId('ai-diagnosis');
+  await expect(diag).toHaveCount(1);
+  await expect(page.getByTestId('ai-provider-anthropic').getByTestId('ai-diagnosis')).toHaveCount(0);
+  await diag.locator('summary').click();
+  await expect(diag).toContainText('pago, até 0,02 USD');
+  await expect(page.getByTestId('ai-diagnosis-run')).toBeDisabled();
+  await page.getByTestId('ai-diagnosis-agree').check();
+  await expect(page.getByTestId('ai-diagnosis-run')).toBeEnabled();
+  // Modo local: não há fornecedor real; o pedido é recusado e nada sai do browser.
+  await page.getByTestId('ai-diagnosis-run').click();
+  await expect(page.getByTestId('ai-diagnosis-report')).toHaveCount(0);
+  expect(external).toEqual([]);
+});

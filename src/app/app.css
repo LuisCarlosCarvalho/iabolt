@@ -799,3 +799,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ui-primary); }
 .ai-preview-devices button { height: 28px; padding: 0 10px; border: 0; border-radius: calc(var(--ui-radius) - 2px); background: transparent; color: var(--ui-text-muted, var(--ui-text)); cursor: pointer; font-size: 12px; font-weight: 500; }
 .ai-preview-devices button.is-active { background: var(--ui-surface-3); color: var(--ui-text); }
 .ai-preview-devices button:focus-visible { outline: none; box-shadow: var(--ui-focus); }
+
+/* Diagnóstico progressivo do pedido ao Gemini (painel de IA, só administradores) */
+.ai-diagnosis { margin-top: 12px; border-top: 1px solid var(--ui-border); padding-top: 10px; display: grid; gap: 8px; }
+.ai-diagnosis summary { cursor: pointer; font-weight: 600; }
+.ai-diagnosis-report ol { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 4px; font-size: 13px; overflow-wrap: anywhere; }
+.ai-diagnosis-report li.is-bad { color: var(--ui-danger); }

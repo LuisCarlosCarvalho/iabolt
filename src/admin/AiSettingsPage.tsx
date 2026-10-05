@@ -1,10 +1,12 @@
 import { AlertTriangle, CheckCircle2, ImageIcon, KeyRound, PlugZap, RefreshCw, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
+  DIAG_MAX_USD,
   routing,
   SUPPORTED_PROVIDERS,
   TEST_COST_NOTE,
   type AdminAuditEntry,
+  type AdminDiagnosis,
   type AdminGeneration,
   type AdminRequest,
   type AdminResult,
@@ -532,7 +534,65 @@ function ProviderCard({
           </p>
         )}
       </form>
+      {provider === 'google' && k.configured && <GeminiDiagnosis busy={busy} onRun={onRun} />}
     </article>
+  );
+}
+
+/**
+ * Diagnóstico progressivo do pedido ao Gemini (HTTP 400 «invalid argument»): o servidor envia do
+ * pedido mínimo ao pedido real, um elemento de cada vez, e pára no primeiro recusado. É PAGO (os
+ * degraus aceites consomem tokens), com teto verificado no servidor; só corre com autorização
+ * explícita nesta página. A chave nunca sai do servidor.
+ */
+function GeminiDiagnosis({ busy, onRun }: { busy: string | null; onRun: (label: string, req: AdminRequest, after?: (r: AdminResult) => void) => Promise<void> }) {
+  const [agree, setAgree] = useState(false);
+  const [report, setReport] = useState<AdminDiagnosis | null>(null);
+  return (
+    <details className="ai-diagnosis" data-testid="ai-diagnosis">
+      <summary>Diagnóstico do pedido (pago, até {DIAG_MAX_USD.toLocaleString('pt-PT')} USD)</summary>
+      <p className="hint">
+        Envia ao Gemini até 9 pedidos, do mais simples ao pedido real do assistente (com um projeto anónimo), e pára no primeiro recusado. Os pedidos aceites
+        consomem tokens; o custo total nunca passa de {DIAG_MAX_USD.toLocaleString('pt-PT')} USD.
+      </p>
+      <label className="ai-toggle">
+        <input type="checkbox" checked={agree} disabled={busy !== null} onChange={(e) => setAgree(e.target.checked)} data-testid="ai-diagnosis-agree" />
+        <span>Autorizo este diagnóstico pago (até {DIAG_MAX_USD.toLocaleString('pt-PT')} USD)</span>
+      </label>
+      <Button
+        disabled={busy !== null || !agree}
+        onClick={() =>
+          void onRun('diagnose-google', { action: 'diagnose', provider: 'google', maxUsd: DIAG_MAX_USD }, (r) => {
+            setAgree(false);
+            setReport(r.body.diagnosis ?? null);
+          })
+        }
+        data-testid="ai-diagnosis-run"
+      >
+        {busy === 'diagnose-google' ? 'A diagnosticar…' : 'Executar diagnóstico'}
+      </Button>
+      {report && (
+        <div className="ai-diagnosis-report" data-testid="ai-diagnosis-report">
+          <p>
+            <strong>
+              {report.firstRejected
+                ? `Primeiro pedido recusado: ${report.steps.find((x) => x.id === report.firstRejected)?.label ?? report.firstRejected}`
+                : report.stoppedForBudget
+                  ? 'Parado pelo teto de custo.'
+                  : 'Nenhum pedido recusado.'}
+            </strong>{' '}
+            Modelo {report.model} · custo {report.costUsd.toFixed(6)} USD
+          </p>
+          <ol>
+            {report.steps.map((st) => (
+              <li key={st.id} className={st.accepted ? 'is-ok' : 'is-bad'}>
+                {st.label}: {st.http === null ? 'não enviado' : `HTTP ${st.http}`} — {st.detail}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </details>
   );
 }
 

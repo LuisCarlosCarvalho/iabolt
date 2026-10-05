@@ -68,6 +68,9 @@ const v1: AdminDepsV1 = {
 /** As chamadas da função ai-admin nova (v2). */
 const v2: AdminDeps = {
   ...common,
+  diagnose: async () => {
+    throw new Error('diagnóstico não usado neste teste');
+  },
   get: (actor) => rpc('ai_admin_get_v2', { p_actor: actor }),
   update: (actor, version, patch) => rpc('ai_admin_update_v2', { p_actor: actor, p_expected_version: version, p_patch: JSON.stringify(patch) }),
   stageKey: async (actor, provider, key, last4, fp) => String(await rpc('ai_admin_stage_key_v2', { p_actor: actor, p_provider: provider, p_key: key, p_last4: last4, p_fingerprint: fp })),

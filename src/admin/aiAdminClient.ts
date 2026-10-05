@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import {
   AdminAuditEntry,
+  AdminDiagnosis,
   AdminGeneration,
   AdminUsage,
   AdminView,
@@ -80,6 +81,7 @@ const AdminBodySchema = z.object({
   generation: AdminGeneration.optional(),
   audit: z.array(AdminAuditEntry).optional(),
   test: z.object({ ok: z.boolean(), definitive: z.boolean(), message: z.string(), cost: z.string() }).optional(),
+  diagnosis: AdminDiagnosis.optional(),
   message: z.string().optional(),
   error: z.string().optional(),
   code: z.string().optional(),

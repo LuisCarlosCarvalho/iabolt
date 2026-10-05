@@ -14,6 +14,7 @@ import type { AdminDeps } from '../_shared/ai/admin.ts';
 import type { AdminDeps as AdminDepsV1 } from '../_shared/ai/adminV1.ts';
 import { handleAdminAny } from '../_shared/ai/compatV1.ts';
 import type { ProviderId } from '../_shared/ai/ids.ts';
+import { runGeminiLadder } from '../_shared/ai/googleDiagnose.ts';
 import { checkProviderKey } from '../_shared/ai/registry.ts';
 import { corsHeaders, json } from '../_shared/http.ts';
 
@@ -73,6 +74,7 @@ const v2: AdminDeps = {
   usage: (actor) => rpc('ai_admin_usage', { p_actor: actor }),
   generation: (actor) => rpc('ai_admin_generation', { p_actor: actor }),
   audit: (actor) => rpc('ai_admin_audit', { p_actor: actor, p_limit: 50 }),
+  diagnose: (model, key, prices, maxUsd) => runGeminiLadder({ apiKey: key, model, fetch, prices, maxUsd }),
 };
 
 /** Painel anterior (v1, durante a transição): funções SQL v1 mantidas pela migração (chave Anthropic). */
