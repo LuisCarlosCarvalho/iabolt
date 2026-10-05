@@ -1,7 +1,7 @@
 import { AI_STYLE_PROPS } from './contract.ts';
 import type { TokenUsage } from './limits.ts';
 import { portableToolSchema, TOOL_NAME } from './prompt.ts';
-import { parseArgs, plainText, ProviderError, providerErrorDetail, TOOL_DESCRIPTION, type AiProvider, type FetchLike, type KeyCheck } from './provider.ts';
+import { parseArgs, plainText, ProviderError, providerErrorDetail, providerErrorDiagnostic, TOOL_DESCRIPTION, type AiProvider, type FetchLike, type KeyCheck } from './provider.ts';
 import type { GeneratedImage, ImageGenerator, ImageRequest } from './images.ts';
 
 /**
@@ -125,7 +125,13 @@ async function post(opts: { apiKey: string; fetch: FetchLike; baseUrl?: string }
   if (!res.ok) {
     const server = res.status >= 500;
     const detail = providerErrorDetail(json);
-    throw new ProviderError(`O fornecedor recusou o pedido${what === 'imagem' ? ' de imagem' : ''} (HTTP ${res.status}${detail ? ` · ${detail}` : ''}).`, what === 'texto' && (res.status === 429 || server), server ? 'unknown' : 'none');
+    throw new ProviderError(
+      `O fornecedor recusou o pedido${what === 'imagem' ? ' de imagem' : ''} (HTTP ${res.status}${detail ? ` · ${detail}` : ''}).`,
+      what === 'texto' && (res.status === 429 || server),
+      server ? 'unknown' : 'none',
+      // Resposta completa (estado, código, detalhes): só para o registo do consumo.
+      json === null ? '(resposta sem JSON)' : providerErrorDiagnostic(JSON.stringify(json)),
+    );
   }
   return json;
 }

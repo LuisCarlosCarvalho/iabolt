@@ -151,6 +151,35 @@ describe('[simulado] Google Gemini (Interactions API)', () => {
     expect(err instanceof ProviderError && [err.message, err.retriable]).toEqual(['O fornecedor recusou o pedido (HTTP 400 · INVALID_ARGUMENT: bad field).', false]);
   });
 
+  it('HTTP 400 de 05/10: a resposta completa do fornecedor fica no diagnóstico (lista, código numérico, detalhes), sem chaves; o ecrã mantém a mensagem curta', async () => {
+    // Formato observado em produção: só a mensagem genérica chegou ao registo (sem «INVALID_ARGUMENT:»).
+    const body = [{ error: { code: 400, type: 400, message: 'Request contains an invalid argument.', details: [{ reason: 'x', field: 'tools[0].parameters', key: 'AIzaSyD-abcdefghijklmnopqrstuvwxyz0123456789' }] } }];
+    const bad = fakeFetch([{ status: 400, body }]);
+    const err = await googleProvider({ apiKey: 'k', model: 'gemini-3.5-flash-lite', fetch: bad.fetch }).propose(CALL).catch((e: unknown) => e);
+    if (!(err instanceof ProviderError)) throw new Error('esperava ProviderError');
+    expect(err.message).toBe('O fornecedor recusou o pedido (HTTP 400 · Request contains an invalid argument.).');
+    expect(err.diagnostic).toContain('"field":"tools[0].parameters"');
+    expect(err.diagnostic).toContain('"code":400');
+    expect(err.diagnostic).not.toContain('AIzaSy');
+    expect(err.diagnostic.length).toBeLessThanOrEqual(450);
+    // Corpo que não é JSON: fica identificado como tal.
+    const notJson = fakeFetch([{ status: 400, body: null }]);
+    const e2 = await googleProvider({ apiKey: 'k', model: 'm', fetch: notJson.fetch }).propose(CALL).catch((e: unknown) => e);
+    expect(e2 instanceof ProviderError && e2.diagnostic).toBe('(resposta sem JSON)');
+  });
+
+  it('regressão do pedido do print (anonimizado): corpo enviado ao Gemini conforme a referência da Interactions API', () => {
+    const user = 'Pode fazer uma mudança no website e colocar fotos relacionadas com o assunto?';
+    const body = googleRequestBody('gemini-3.5-flash-lite', 'instruções', user, 1500);
+    // Campos de topo e generation_config conforme a referência oficial (05/10/2026).
+    expect(Object.keys(body).sort()).toEqual(['generation_config', 'input', 'model', 'store', 'system_instruction', 'tools']);
+    expect(body.generation_config).toEqual({ tool_choice: 'any', max_output_tokens: 1500 });
+    expect(body.input).toBe(user);
+    const tools = body.tools;
+    if (!Array.isArray(tools)) throw new Error('tools');
+    expect(Object.keys(tools[0] as object).sort()).toEqual(['description', 'name', 'parameters', 'type']);
+  });
+
   it('teste sem custo: GET do modelo; chave inválida (400 «API key not valid») é recusa definitiva', async () => {
     const ok = fakeFetch([{ status: 200, body: { name: 'models/gemini-3.8-flash' } }]);
     expect(await googleCheck({ apiKey: 'k', model: 'gemini-3.8-flash', fetch: ok.fetch })).toEqual({ ok: true, formatChecked: false });

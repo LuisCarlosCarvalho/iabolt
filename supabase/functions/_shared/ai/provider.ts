@@ -42,9 +42,33 @@ export class ProviderError extends Error {
     message: string,
     readonly retriable: boolean,
     readonly charged: 'none' | 'unknown',
+    /** Resposta de erro do fornecedor (sem chaves, limitada): só para o registo, nunca para o ecrã. */
+    readonly diagnostic = '',
   ) {
     super(message);
   }
+}
+
+/** Remove tudo o que se pareça com uma chave ou um token. */
+const scrub = (text: string) =>
+  text
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, '[removido]')
+    .replace(/AIza[A-Za-z0-9_-]{10,}/g, '[removido]')
+    .replace(/[A-Za-z0-9_-]{40,}/g, '[removido]');
+
+/**
+ * Resposta de erro completa do fornecedor, compacta e sem chaves, para `ai_usage.error`. A mensagem
+ * principal da Google é genérica («Request contains an invalid argument.»); o resto da resposta
+ * (estado, código, detalhes) é o que identifica o campo recusado.
+ */
+export function providerErrorDiagnostic(raw: string, max = 450): string {
+  let text = raw.trim();
+  try {
+    text = JSON.stringify(JSON.parse(text));
+  } catch {
+    // não é JSON: fica o texto tal como veio
+  }
+  return scrub(text.replace(/\s+/g, ' ')).slice(0, max);
 }
 
 export const TOOL_DESCRIPTION = 'Propõe operações validadas sobre o âmbito do pedido.';
@@ -59,11 +83,14 @@ export function sentText(user: string): string {
  * fornecedor não trazem a chave; mesmo assim, tudo o que se pareça com uma chave é removido.
  */
 export function providerErrorDetail(body: unknown): string {
-  const err = body && typeof body === 'object' ? Reflect.get(body, 'error') : null;
-  // Anthropic e OpenAI: error.type; Google: error.status.
-  const type = err && typeof err === 'object' ? (Reflect.get(err, 'type') ?? Reflect.get(err, 'status')) : null;
+  // A Google pode devolver o erro dentro de uma lista: `[{"error": {...}}]`.
+  const root: unknown = Array.isArray(body) ? body[0] : body;
+  const err = root && typeof root === 'object' ? Reflect.get(root, 'error') : null;
+  // Anthropic e OpenAI: error.type; Google: error.status (texto) — o primeiro que for texto.
+  const typeOf = (k: string) => (err && typeof err === 'object' ? Reflect.get(err, k) : null);
+  const type = [typeOf('type'), typeOf('status')].find((v): v is string => typeof v === 'string');
   const message = err && typeof err === 'object' ? Reflect.get(err, 'message') : null;
-  const parts = [typeof type === 'string' ? type : '', typeof message === 'string' ? message : ''].filter(Boolean);
+  const parts = [type ?? '', typeof message === 'string' ? message : ''].filter(Boolean);
   // Google: `error.details[].fieldViolations[]` diz que campo do pedido foi recusado (a mensagem
   // principal é genérica: «Request contains an invalid argument.»). Fica no registo do consumo.
   const details = err && typeof err === 'object' ? Reflect.get(err, 'details') : null;
@@ -80,10 +107,7 @@ export function providerErrorDetail(body: unknown): string {
     })
     .filter(Boolean);
   const text = parts.join(': ') + (fields.length ? ` [campo: ${fields.join('; ')}]` : '');
-  return text
-    .replace(/sk-[A-Za-z0-9_-]{8,}/g, '[removido]')
-    .replace(/[A-Za-z0-9_-]{40,}/g, '[removido]')
-    .slice(0, 400);
+  return scrub(text).slice(0, 400);
 }
 
 /**

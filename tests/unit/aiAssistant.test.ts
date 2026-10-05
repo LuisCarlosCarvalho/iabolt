@@ -700,6 +700,17 @@ describe('[simulado] Assistente IA · função ai-propose (fornecedor falso, sem
     expect(settlement(deps)).toMatchObject({ status: 'failed', attempts: 1, confirmedCostUsd: 0, unknownCostUsd: 0 });
   });
 
+  it('HTTP 400 do Gemini (05/10): a resposta completa vai para o registo; o ecrã só mostra a mensagem curta', async () => {
+    const { raw } = await body();
+    const msg = 'O fornecedor recusou o pedido (HTTP 400 · Request contains an invalid argument.).';
+    const p = providerOf(new ProviderError(msg, false, 'none', '[{"error":{"code":400,"details":[{"field":"tools[0]"}]}}]'));
+    const deps = baseDeps(p);
+    const r = await handlePropose('Bearer ok', raw, deps);
+    expect(r.status).toBe(502);
+    expect(JSON.stringify(r.body)).not.toContain('details');
+    expect(settlement(deps).error).toBe(`${msg} | resposta do fornecedor: [{"error":{"code":400,"details":[{"field":"tools[0]"}]}}]`);
+  });
+
   it('resposta sem chamada da ferramenta (texto livre ou recusa): inválida, nada aplicado, sem repetição, consumo contado', async () => {
     const { raw } = await body();
     const text = baseDeps(providerOf(ok(undefined, { noToolCall: { stopReason: 'end_turn', text: 'Troquei a imagem do parque por um parque infantil.' } })));

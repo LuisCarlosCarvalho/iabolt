@@ -166,6 +166,8 @@ export async function handlePropose(authHeader: string | null, rawBody: string, 
   let sent = 0;
   let unknownAttempts = 0;
   let lastProblem = '';
+  /** Resposta de erro do fornecedor (só para o registo `ai_usage.error`; o ecrã mostra `lastProblem`). */
+  let lastDiagnostic = '';
   let details: string[] = [];
   let settled = false;
   const confirmed = () => costUsd(known, limits.prices);
@@ -230,6 +232,7 @@ export async function handlePropose(authHeader: string | null, rawBody: string, 
         if (e instanceof ProviderError) {
           if (e.charged === 'unknown') unknownAttempts += 1;
           lastProblem = e.message;
+          lastDiagnostic = e.diagnostic;
           if (!e.retriable) break;
           continue;
         }
@@ -238,7 +241,7 @@ export async function handlePropose(authHeader: string | null, rawBody: string, 
         throw e;
       }
     }
-    await settle('failed', lastProblem);
+    await settle('failed', lastDiagnostic ? `${lastProblem} | resposta do fornecedor: ${lastDiagnostic}` : lastProblem);
     return fail(502, 'invalid_response', `${lastProblem || 'O assistente não respondeu.'} Nada foi alterado.`, details.length ? details : undefined);
   } finally {
     if (!settled) await settle('failed', 'erro interno');
