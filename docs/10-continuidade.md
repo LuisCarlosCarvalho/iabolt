@@ -125,7 +125,36 @@ npm run test:server
 npm run test:e2e:server
 ```
 
-## Atualização de 05/10/2026 · Gemini HTTP 400: correção publicada (validação real pendente)
+## Atualização de 05/10/2026 (tarde) · Gemini HTTP 400 continua: causa ainda NÃO comprovada
+
+**Verificação do que está publicado**
+- Frontend: `master` em `58c2fd1` (Vercel).
+- Funções: `ai-propose` v10 até às 08:57:39 UTC, depois v11 (`3998aa9`); `ai-admin` v8.
+- Migração `20261005120000` aplicada.
+- Fornecedor e modelo: `google / gemini-3.5-flash-lite`. Endpoint: `POST https://generativelanguage.googleapis.com/v1beta/interactions`.
+
+**Tentativas reais (`ai_usage`)**
+- 08:47, 08:49 e 08:56 UTC na v9; 08:58 na v10.
+- Todas com HTTP 400 «Request contains an invalid argument.», 0 tokens e custo 0.
+- Ambas as versões já tinham o esquema corrigido (`a9647e3`). **A hipótese anterior (`const`/`pattern`/`minLength`/`maxLength`) não era a causa, ou não era a única.**
+
+**O que se comprovou**
+- Os campos de topo (`model`, `system_instruction`, `input`, `tools`, `generation_config`, `store`) e o `generation_config` (`tool_choice: "any"`, `max_output_tokens`) estão conformes à referência oficial da Interactions API.
+- A ferramenta tem `type`, `name`, `description` e `parameters`, também conforme.
+- O esquema tem só palavras do subconjunto documentado, todos os nós com `type`, profundidade 8 e cerca de 6 KB, com `anyOf` de 11 ramos e `anyOf` aninhado em `image`. A documentação avisa que esquemas grandes ou muito aninhados podem ser recusados.
+- O registo não tem «INVALID_ARGUMENT:», ao contrário de um erro Google normal. A Interactions API devolve o erro noutro formato e o servidor descartava o resto da resposta: estado, código e detalhes.
+- Sem chave não é possível validar: a Google responde 403 antes de validar o corpo.
+
+**Alteração publicada (v11, `3998aa9`)**
+- A resposta de erro completa do fornecedor (sem chaves, até 450 caracteres) passa a ficar em `ai_usage.error`, após «| resposta do fornecedor:». O ecrã mantém a mensagem curta.
+- Não muda o pedido enviado.
+
+**Falta**
+- Uma tentativa real, que não custa nada se voltar a dar 400.
+- Ler a resposta completa e corrigir o campo indicado.
+- Se a resposta não trouxer o campo, usar o diagnóstico pago por bissecção, com variantes do pedido e custo máximo estimado inferior a 0,01 USD, só com autorização.
+
+## Atualização de 05/10/2026 · Gemini HTTP 400: primeira hipótese publicada (não resolveu; ver acima)
 
 **Causa (com evidência)**
 - `ai_usage` mostra 3 tentativas com `google / gemini-3.5-flash-lite` (05/10, às 07:46, 07:55 e 08:15 UTC). Todas falharam com HTTP 400 «Request contains an invalid argument», com 0 tokens e custo 0: a Google recusou o pedido antes de o processar.
