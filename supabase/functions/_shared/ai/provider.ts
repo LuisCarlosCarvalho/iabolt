@@ -64,11 +64,26 @@ export function providerErrorDetail(body: unknown): string {
   const type = err && typeof err === 'object' ? (Reflect.get(err, 'type') ?? Reflect.get(err, 'status')) : null;
   const message = err && typeof err === 'object' ? Reflect.get(err, 'message') : null;
   const parts = [typeof type === 'string' ? type : '', typeof message === 'string' ? message : ''].filter(Boolean);
-  return parts
-    .join(': ')
+  // Google: `error.details[].fieldViolations[]` diz que campo do pedido foi recusado (a mensagem
+  // principal é genérica: «Request contains an invalid argument.»). Fica no registo do consumo.
+  const details = err && typeof err === 'object' ? Reflect.get(err, 'details') : null;
+  const violations = (Array.isArray(details) ? details : []).flatMap((d: unknown) => {
+    const fv = d && typeof d === 'object' ? Reflect.get(d, 'fieldViolations') : null;
+    return Array.isArray(fv) ? fv : [];
+  });
+  const fields = violations
+    .slice(0, 2)
+    .map((v: unknown) => {
+      const field = v && typeof v === 'object' ? Reflect.get(v, 'field') : null;
+      const description = v && typeof v === 'object' ? Reflect.get(v, 'description') : null;
+      return [typeof field === 'string' ? field : '', typeof description === 'string' ? description : ''].filter(Boolean).join(' — ');
+    })
+    .filter(Boolean);
+  const text = parts.join(': ') + (fields.length ? ` [campo: ${fields.join('; ')}]` : '');
+  return text
     .replace(/sk-[A-Za-z0-9_-]{8,}/g, '[removido]')
     .replace(/[A-Za-z0-9_-]{40,}/g, '[removido]')
-    .slice(0, 240);
+    .slice(0, 400);
 }
 
 /**

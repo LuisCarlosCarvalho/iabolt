@@ -31,6 +31,20 @@ describe('adaptador do fornecedor', () => {
     expect(providerErrorDetail({ error: 'texto' })).toBe('');
   });
 
+  it('Google: o campo recusado (fieldViolations) fica no motivo, sem chaves', () => {
+    const google = {
+      error: {
+        code: 400,
+        message: 'Request contains an invalid argument.',
+        status: 'INVALID_ARGUMENT',
+        details: [{ '@type': 'type.googleapis.com/google.rpc.BadRequest', fieldViolations: [{ field: 'tools[0].parameters.properties.operations', description: 'Unknown name "const"' }] }],
+      },
+    };
+    expect(providerErrorDetail(google)).toBe('INVALID_ARGUMENT: Request contains an invalid argument. [campo: tools[0].parameters.properties.operations — Unknown name "const"]');
+    const leaky = { error: { message: 'x', details: [{ fieldViolations: [{ field: 'k', description: 'AIzaSyD-abcdefghijklmnopqrstuvwxyz0123456789ABCD' }] }] } };
+    expect(providerErrorDetail(leaky)).not.toContain('AIzaSy');
+  });
+
   it('um erro no pedido real mostra o motivo do fornecedor', async () => {
     const { fetch } = fakeFetch([{ status: 400, body: badRequest }]);
     const provider = anthropicProvider({ apiKey: 'k', model: 'm', fetch });

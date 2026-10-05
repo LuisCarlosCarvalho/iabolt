@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { googleCheck, googleImageGenerator, googleProvider } from '../../supabase/functions/_shared/ai/google.ts';
+import { geminiToolSchema, googleCheck, googleImageGenerator, googleProvider, googleRequestBody } from '../../supabase/functions/_shared/ai/google.ts';
+import { AI_STYLE_PROPS } from '../../supabase/functions/_shared/ai/contract.ts';
 import type { Reservation, Settlement } from '../../supabase/functions/_shared/ai/handler.ts';
 import { handleImage, type ImageDeps } from '../../supabase/functions/_shared/ai/imageHandler.ts';
 import { RuntimeSettings } from '../../supabase/functions/_shared/ai/limits.ts';
@@ -32,6 +33,33 @@ describe('esquema portável', () => {
     const txt = JSON.stringify(portableToolSchema());
     expect(txt).not.toMatch(/"oneOf"|"propertyNames"|"\$schema"/);
     expect(txt).toContain('"anyOf"');
+  });
+
+  it('Gemini: esquema no subconjunto aceite (sem const/pattern/minLength/maxLength; objetos com propriedades) — causa do HTTP 400 de 05/10', () => {
+    const schema = geminiToolSchema();
+    const txt = JSON.stringify(schema);
+    expect(txt).not.toMatch(/"const"|"pattern"|"minLength"|"maxLength"|"oneOf"|"propertyNames"|"\$schema"/);
+    const empty: string[] = [];
+    const walk = (v: unknown, path: string): void => {
+      if (Array.isArray(v)) {
+        v.forEach((x, i) => walk(x, `${path}[${i}]`));
+        return;
+      }
+      if (!v || typeof v !== 'object') return;
+      const o = v as Record<string, unknown>;
+      if (o.type === 'object' && (!o.properties || Object.keys(o.properties as object).length === 0)) empty.push(path);
+      for (const [k, x] of Object.entries(o)) walk(x, `${path}.${k}`);
+    };
+    walk(schema, '');
+    expect(empty).toEqual([]);
+    // As constantes viram enum de um só valor (ex.: o nome de cada operação).
+    expect(txt).toContain('"enum":["setText"]');
+    // «style»: as propriedades permitidas pelo contrato, explícitas.
+    expect(txt).toContain(`"${AI_STYLE_PROPS[0]}":{"type":"string"}`);
+    // O pedido ao Gemini usa este esquema; os outros fornecedores mantêm o portável.
+    const body = googleRequestBody('gemini-3.5-flash-lite', 'sys', 'user', 1500);
+    expect(JSON.stringify(body.tools)).toContain(JSON.stringify(schema));
+    expect(JSON.stringify(portableToolSchema())).toContain('"const"');
   });
 
   it('registo: só os três fornecedores implementados; a Anthropic não gera imagens', () => {

@@ -1,3 +1,4 @@
+import { AI_STYLE_PROPS } from './contract.ts';
 import type { TokenUsage } from './limits.ts';
 import { portableToolSchema, TOOL_NAME } from './prompt.ts';
 import { parseArgs, plainText, ProviderError, providerErrorDetail, TOOL_DESCRIPTION, type AiProvider, type FetchLike, type KeyCheck } from './provider.ts';
@@ -25,13 +26,48 @@ const obj = (v: unknown): object | null => (v && typeof v === 'object' ? v : nul
  */
 const THINKING: Readonly<Record<string, string>> = { 'gemini-3.8-flash': 'low' };
 
+/** Palavras do JSON Schema que o Gemini não aceita no esquema das funções (documentação oficial). */
+const UNSUPPORTED = new Set(['pattern', 'minLength', 'maxLength', '$schema']);
+
+/**
+ * Esquema da ferramenta no subconjunto de JSON Schema que o Gemini aceita. Com o esquema completo a
+ * Google respondia 400 «Request contains an invalid argument» (pedido real de 05/10/2026):
+ *  - `const` → `enum` com um só valor;
+ *  - `pattern`, `minLength`, `maxLength` → omitidos;
+ *  - objeto aberto (só `additionalProperties`, ex.: `style`) → propriedades explícitas (as de
+ *    `AI_STYLE_PROPS`): o Gemini exige `properties` não vazias num objeto.
+ * Não enfraquece nada: o servidor volta a validar a proposta com o contrato completo (limites,
+ * formatos, operações permitidas) antes de ela poder ser aplicada.
+ */
+export function geminiToolSchema(): Record<string, unknown> {
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== 'object') return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v)) {
+      if (UNSUPPORTED.has(k)) continue;
+      if (k === 'const') out.enum = [x];
+      else out[k] = walk(x);
+    }
+    const props = out.properties;
+    const open = out.additionalProperties;
+    if (out.type === 'object' && (!props || (typeof props === 'object' && Object.keys(props).length === 0)) && open && typeof open === 'object') {
+      out.properties = Object.fromEntries(AI_STYLE_PROPS.map((name) => [name, open]));
+      out.additionalProperties = false;
+    }
+    return out;
+  };
+  const schema = walk(portableToolSchema());
+  return schema && typeof schema === 'object' && !Array.isArray(schema) ? (schema as Record<string, unknown>) : {};
+}
+
 export function googleRequestBody(model: string, system: string, user: string, maxOutputTokens: number): Record<string, unknown> {
   const thinking = THINKING[model];
   return {
     model,
     system_instruction: system,
     input: user,
-    tools: [{ type: 'function', name: TOOL_NAME, description: TOOL_DESCRIPTION, parameters: portableToolSchema() }],
+    tools: [{ type: 'function', name: TOOL_NAME, description: TOOL_DESCRIPTION, parameters: geminiToolSchema() }],
     generation_config: { tool_choice: 'any', max_output_tokens: maxOutputTokens, ...(thinking ? { thinking_level: thinking } : {}) },
     store: false,
   };
