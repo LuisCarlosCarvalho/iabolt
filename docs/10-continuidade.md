@@ -127,26 +127,26 @@ npm run test:e2e:server
 
 ## Atualização de 01/10/2026 · Seleção sincronizada entre o canvas e «Páginas e camadas» (publicada)
 
-**Publicada no commit que contém esta secção** (, Vercel). Sem alterações no Supabase e sem chamadas de IA.
+**Publicada:** correção no commit `49c0ad9` (`master`, Vercel, produção https://bolt2-lake.vercel.app, `version.json` = `49c0ad9…`). Esta secção foi corrigida num commit seguinte de documentação, porque a primeira versão perdeu os trechos entre acentos graves ao ser escrita pela linha de comandos. Sem alterações no Supabase e sem chamadas de IA.
 
 **Causa do print.**
-- O GrapesJS importa um  que só tem um título e um botão (ex.: o «callout» do Stylish Portfolio) como componente de **texto**.
+- O GrapesJS importa um `div` que só tem um título e um botão (ex.: o «callout» do Stylish Portfolio) como componente de **texto**.
 - As camadas escondiam os filhos dos textos, por isso o título «Welcome to your next website!» não tinha linha e não podia ser destacado.
 - Faltava também deslocar a lista até à linha selecionada.
 
-**Correção** ():
-- A seleção é a do motor (fonte única) e a linha é a do componente real ().
+**Correção** (`src/editor/LayersPanel.tsx`):
+- A seleção é a do motor (fonte única) e a linha é a do componente real (`data-layer-id`).
 - Os filhos dos textos:
-  - a formatação (, , …) e o conteúdo de parágrafos, títulos e ligações continuam escondidos;
-  - um «texto» que é um contentor ( com títulos, parágrafos ou botões) mostra-os.
-- Uma seleção sem linha própria (ex.: um ) marca a linha que a contém (estilo próprio).
+  - a formatação (`em`, `strong`, `span`…) e o conteúdo de parágrafos, títulos e ligações continuam escondidos;
+  - um «texto» que é um contentor (`div` com títulos, parágrafos ou botões) mostra-os.
+- Uma seleção sem linha própria (ex.: um `<em>`) marca a linha que a contém (estilo próprio).
 - Só o caminho até à linha é aberto. Os ramos que o utilizador abriu ou fechou ficam como estavam (os detalhes SVG continuam fechados por omissão).
-- Deslocamento **só da lista de camadas**, com : nunca o canvas nem a página. Não há deslocamento se a linha já estiver visível, e o foco não muda.
+- Deslocamento **só da lista de camadas**, com `scrollTop` (não `scrollIntoView`): nunca o canvas nem a página. Não há deslocamento se a linha já estiver visível, e o foco não muda.
 - A linha volta a ser revelada quando a seleção muda e quando se volta ao painel. Noutra ferramenta, o painel não abre sozinho.
 - Destaque com fundo, contorno e barra, nos tokens do tema (claro e escuro).
 
 **Testes:**
-- , com a página importada, cobre:
+- `tests/e2e/layers-sync.spec.ts`, com a página importada, cobre:
   - o título do print;
   - títulos com o mesmo nome;
   - um elemento aninhado;
@@ -155,7 +155,7 @@ npm run test:e2e:server
   - outra ferramenta e regresso;
   - a mudança de página.
 - O mesmo teste confirma que a revisão, o histórico e a gravação não mudam ao só selecionar, e que o canvas e a página da aplicação não se deslocam.
--  exit 0 (214 testes); Playwright: 79 passaram, 3 ignorados (visuais).
+- `npm run check` exit 0 (214 testes); Playwright: 79 passaram, 3 ignorados (visuais).
 
 ## Atualização de 01/10/2026 · Publicação: importação ZIP, janela «Editar com IA», imagens e custos só para administradores
 
