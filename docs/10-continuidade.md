@@ -125,6 +125,43 @@ npm run test:server
 npm run test:e2e:server
 ```
 
+## Atualização de 05/10/2026 (tarde, 2) · Gemini HTTP 400: diagnóstico progressivo publicado
+
+**Tentativa analisada**
+- Pedido `b32f88e5-a2bf-4cd9-8955-1908e36f8b7c`, 05/10 às 09:33:42 UTC.
+- Processado pela `ai-propose` v11 (publicada às 09:08:42 UTC).
+- `google / gemini-3.5-flash-lite`, endpoint `POST /v1beta/interactions`.
+- 0 tokens e custo 0, mas isso não garante o resultado de uma tentativa seguinte.
+
+**Resposta completa da Google**
+- Os 89 caracteres que ficaram registados, sem corte (limite de 450):
+  `{"error":{"message":"Request contains an invalid argument.","code":"invalid_request"}}`
+- Não traz `details` nem caminho de campo.
+
+**Conclusão:** a causa não se consegue isolar sem pedidos reais. Não fiz chamadas pagas.
+
+**Publicado: diagnóstico progressivo (commit `94202f0`)**
+- `ai-admin` v9 (verificada igual ao commit) e frontend `master` em `94202f0`. O `ai-propose` continua na v11.
+- Executa até 9 degraus, cada um acrescentando um elemento ao anterior:
+  1. geração mínima;
+  2. `store: false`;
+  3. `system_instruction` real;
+  4. ferramenta mínima;
+  5. `tool_choice: "any"`;
+  6. esquema real com 1 operação;
+  7. sem `anyOf` aninhado;
+  8. esquema completo;
+  9. pedido real do assistente, com projeto anonimizado e o pedido do print.
+- Pára no primeiro recusado e guarda a resposta completa.
+- Teto de 0,02 USD verificado no servidor antes de cada degrau, pelo pior caso. Estimativa total com os preços do Flash-Lite: 0,0118 USD.
+- Só administrador, só Google. Corre apenas quando o administrador marca a autorização e clica, em Configurações de IA → cartão Google → «Diagnóstico do pedido».
+- O custo do diagnóstico **não** entra em `ai_usage`: aparece no relatório mostrado no painel.
+
+**Falta**
+- Executar o diagnóstico (autorização do utilizador).
+- Corrigir a conversão no adaptador Google conforme o degrau recusado.
+- Publicar o `ai-propose` e fazer uma tentativa real com proposta válida.
+
 ## Atualização de 05/10/2026 (tarde) · Gemini HTTP 400 continua: causa ainda NÃO comprovada
 
 **Verificação do que está publicado**
