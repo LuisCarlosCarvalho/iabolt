@@ -125,6 +125,39 @@ npm run test:server
 npm run test:e2e:server
 ```
 
+## Atualização de 05/10/2026 · Gemini HTTP 400: correção publicada (validação real pendente)
+
+**Causa (com evidência)**
+- `ai_usage` mostra 3 tentativas com `google / gemini-3.5-flash-lite` (05/10, às 07:46, 07:55 e 08:15 UTC). Todas falharam com HTTP 400 «Request contains an invalid argument», com 0 tokens e custo 0: a Google recusou o pedido antes de o processar.
+- A Interactions API (`POST /v1beta/interactions`) aceita só um subconjunto de JSON Schema nos `parameters` da função (documentação oficial). O esquema enviado tinha `const` ×19, `maxLength` ×33, `minLength` ×20, `pattern` ×3 e o objeto `style` sem `properties`.
+- O resto do corpo (`model`, `system_instruction`, `input`, `tools`, `generation_config.tool_choice: "any"`, `max_output_tokens`, `store`) está conforme a referência. O identificador `gemini-3.5-flash-lite` consta da documentação.
+- O teste de chave no painel (`GET /v1beta/models/{modelo}`) não envia o esquema, por isso não prova a geração.
+
+**Correção (commit `a9647e3`)**
+- `geminiToolSchema()` converte `const` em `enum` de um valor, omite `pattern`/`minLength`/`maxLength` e dá ao `style` as propriedades de `AI_STYLE_PROPS`. A proposta continua validada pelo contrato completo no servidor.
+- `providerErrorDetail` grava em `ai_usage.error` o campo recusado (`error.details[].fieldViolations`), sem chaves.
+
+**Publicação (05/10/2026)**
+- `ai-propose` passou de v8 para v9, publicada a partir de um worktree limpo em `a9647e3`. A versão descarregada é idêntica ao commit.
+- Sem alterações em `ai-admin` (v7), `ai-image` (v3) ou na base de dados, e sem migração.
+- Frontend sem alterações: o push foi só ao ramo `fase-1-primeira-versao`. `master` e a Vercel continuam em `0e56273`.
+- O contrato não mudou, por isso os separadores já abertos continuam compatíveis.
+
+**Pendente**
+- Uma tentativa real do utilizador. Se falhar, o motivo detalhado fica em `ai_usage.error`.
+
+**Imagens em falta no projeto do print**
+- 43 endereços distintos (69 referências) apontam para `https://daniel-machado.site/wp-content/uploads/…`.
+- O domínio não existe: NXDOMAIN no DNS da Google (8.8.8.8) e da Cloudflare (1.1.1.1).
+- Não há referências ao Storage nem relativas. A única imagem de `joanapinho.pt` responde 200.
+- Nada foi substituído.
+
+**Ainda local (não publicado)**
+- Fornecedores ativos e escolha automática, com a migração `20261005120000`.
+- Responsivo automático.
+- Google Fonts.
+- Limitação conhecida do responsivo: os ajustes da IA gravam-se nos breakpoints da plataforma (≤ 992 px e ≤ 480 px). Os breakpoints importados (ex.: Elementor, 1024 e 767) ficam intactos, mas entre 481 e 767 px uma regra `#id` da base prevalece sobre a regra móvel importada (de classe).
+
 ## Atualização de 01/10/2026 · Seleção sincronizada entre o canvas e «Páginas e camadas» (publicada)
 
 **Publicada:** correção no commit `49c0ad9` (`master`, Vercel, produção https://bolt2-lake.vercel.app, `version.json` = `49c0ad9…`). Esta secção foi corrigida num commit seguinte de documentação, porque a primeira versão perdeu os trechos entre acentos graves ao ser escrita pela linha de comandos. Sem alterações no Supabase e sem chamadas de IA.
