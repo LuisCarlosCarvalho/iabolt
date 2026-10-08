@@ -26,6 +26,9 @@ const obj = (v: unknown): object | null => (v && typeof v === 'object' ? v : nul
  */
 const THINKING: Readonly<Record<string, string>> = { 'gemini-3.8-flash': 'low' };
 
+/** `thinking_level` enviado a um modelo (undefined = o campo não é enviado). */
+export const geminiThinkingLevel = (model: string): string | undefined => THINKING[model];
+
 /** Palavras do JSON Schema que o Gemini não aceita no esquema das funções (documentação oficial). */
 const UNSUPPORTED = new Set(['pattern', 'minLength', 'maxLength', '$schema']);
 

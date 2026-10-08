@@ -362,9 +362,11 @@ export async function handleAdmin(authHeader: string | null, rawBody: string, de
         const view = parseView(await deps.get(actor));
         const key = await deps.providerKey('google');
         if (!key) return fail(400, 'no_key', 'Não há chave configurada para a Google.', { view });
-        // O modelo de edição em uso, se for da Google; senão, o primeiro modelo de edição da Google.
-        const s = view.settings;
-        const model = (s.provider === 'google' ? view.models.find((m) => m.provider === 'google' && m.model === s.model) : undefined) ?? view.models.find((m) => m.provider === 'google' && m.capability === 'edit');
+        // O modelo de edição da Google mais barato: o HTTP 400 acontece igual em todos (Flash-Lite e
+        // 3.8 Flash, 05-08/10), por isso a causa é comum e o diagnóstico cabe no teto.
+        const model = view.models
+          .filter((m) => m.provider === 'google' && m.capability === 'edit')
+          .sort((a, b) => a.prices.output - b.prices.output || a.prices.input - b.prices.input)[0];
         if (!model) return fail(400, 'no_model', 'Não há modelos de edição da Google.', { view });
         const diagnosis = AdminDiagnosis.parse(await deps.diagnose(model.model, key, { input: model.prices.input, output: model.prices.output }, Math.min(req.maxUsd, DIAG_MAX_USD)));
         return { status: 200, body: { view, diagnosis } };

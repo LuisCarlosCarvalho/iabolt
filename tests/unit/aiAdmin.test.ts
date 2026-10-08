@@ -263,7 +263,7 @@ describe('[simulado] ai-admin · geração validada', () => {
 });
 
 describe('[simulado] ai-admin · diagnóstico progressivo do Gemini (pago, com teto)', () => {
-  it('só Google, teto máximo 0,02 USD, usa o modelo de edição em uso e os seus preços; sem chave → no_key', async () => {
+  it('só Google, teto máximo 0,02 USD, usa o modelo de edição Google mais barato e os seus preços; sem chave → no_key', async () => {
     const calls: Array<{ model: string; prices: { input: number; output: number }; maxUsd: number; keyEnds: string }> = [];
     const base = createLocalAiAdmin();
     const deps: AdminDeps = {
@@ -281,7 +281,8 @@ describe('[simulado] ai-admin · diagnóstico progressivo do Gemini (pago, com t
     expect(r.status).toBe(200);
     expect(r.body.diagnosis?.endpoint).toBe('/v1beta/interactions');
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.model).toMatch(/^gemini-/);
+    // O modelo de edição Google mais barato (a causa do HTTP 400 é comum aos modelos).
+    expect(calls[0]?.model).toBe('gemini-3.5-flash-lite');
     expect(calls[0]?.maxUsd).toBe(0.02);
     expect(calls[0]?.keyEnds).toBe('GGGG');
     expect(JSON.stringify(r.body)).not.toContain(KEY_GOOGLE);

@@ -1,6 +1,6 @@
 import { DIAG_MAX_USD, type AdminDiagnosis } from './admin.ts';
 import { AI_CONTRACT_VERSION, AiProposeRequest } from './contract.ts';
-import { geminiToolSchema, geminiUsage, googleRequestBody } from './google.ts';
+import { geminiThinkingLevel, geminiToolSchema, geminiUsage, googleRequestBody } from './google.ts';
 import { SYSTEM_PROMPT, TOOL_NAME, userMessage } from './prompt.ts';
 import { providerErrorDiagnostic, TOOL_DESCRIPTION, type FetchLike } from './provider.ts';
 
@@ -108,9 +108,12 @@ export function geminiLadder(model: string): DiagStep[] {
   add('6-uma-operacao', 'Esquema real com uma só operação (setText, sem anyOf)', withParams(schemaWithItems((br) => br.slice(0, 1))));
   add('7-sem-aninhado', 'Esquema real: operações sem anyOf aninhado (anyOf de topo)', withParams(schemaWithItems((br) => br.filter((x) => !hasNestedAnyOf(x)))));
   add('8-esquema-completo', 'Esquema real completo (com anyOf aninhado em «image»)', withParams(geminiToolSchema()));
-  // Último degrau: exatamente o corpo do assistente (googleRequestBody), com um pedido anonimizado.
+  const thinking = geminiThinkingLevel(model);
+  if (thinking) add('9-thinking', `+ generation_config.thinking_level: "${thinking}" (só neste modelo)`, (b) => ({ ...b, generation_config: { ...rec(b.generation_config), thinking_level: thinking } }));
+  add('10-saida', '+ max_output_tokens 1500 (como no pedido real)', (b) => ({ ...b, generation_config: { ...rec(b.generation_config), max_output_tokens: REAL_OUTPUT } }));
+  // Último degrau: exatamente o corpo do assistente (googleRequestBody); só o input muda face ao anterior.
   body = googleRequestBody(model, SYSTEM_PROMPT, anonymizedUserMessage(), REAL_OUTPUT);
-  steps.push({ id: '9-pedido-real', label: 'Pedido real do assistente (formato do input e max_output_tokens 1500)', body: clone(body) });
+  steps.push({ id: '11-pedido-real', label: 'Input no formato real do assistente (pedido anonimizado)', body: clone(body) });
   return steps;
 }
 
@@ -121,6 +124,10 @@ export function worstCaseUsd(body: Record<string, unknown>, prices: { input: num
   return (inputTokens * prices.input + out * prices.output) / 1_000_000;
 }
 
+/** Respostas temporárias do fornecedor (sobrecarga, limite de ritmo): repetem-se em vez de parar. */
+const TEMPORARY = new Set([429, 500, 503]);
+const RETRIES = 2;
+
 export async function runGeminiLadder(opts: {
   apiKey: string;
   model: string;
@@ -129,7 +136,10 @@ export async function runGeminiLadder(opts: {
   maxUsd?: number;
   baseUrl?: string;
   timeoutMs?: number;
+  /** Espera entre repetições (injetável nos testes). */
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<DiagReport> {
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const maxUsd = Math.min(opts.maxUsd ?? DIAG_MAX_USD, DIAG_MAX_USD);
   const endpoint = `${opts.baseUrl ?? 'https://generativelanguage.googleapis.com'}/v1beta/interactions`;
   const report: DiagReport = { model: opts.model, endpoint: '/v1beta/interactions', steps: [], firstRejected: null, stoppedForBudget: false, costUsd: 0, maxUsd };
@@ -141,27 +151,42 @@ export async function runGeminiLadder(opts: {
       report.stoppedForBudget = true;
       break;
     }
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 30_000);
-    let res: Awaited<ReturnType<FetchLike>>;
-    try {
-      res = await opts.fetch(endpoint, {
-        method: 'POST',
-        signal: ctrl.signal,
-        headers: { 'content-type': 'application/json', 'x-goog-api-key': opts.apiKey },
-        body: JSON.stringify(step.body),
-      });
-    } catch (e) {
+    let res: Awaited<ReturnType<FetchLike>> | null = null;
+    let json: unknown = null;
+    let retries = 0;
+    let networkProblem = '';
+    for (let attempt = 0; attempt <= RETRIES; attempt += 1) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 30_000);
+      try {
+        res = await opts.fetch(endpoint, {
+          method: 'POST',
+          signal: ctrl.signal,
+          headers: { 'content-type': 'application/json', 'x-goog-api-key': opts.apiKey },
+          body: JSON.stringify(step.body),
+        });
+      } catch (e) {
+        networkProblem = ctrl.signal.aborted ? 'Sem resposta a tempo.' : `Falha de rede: ${e instanceof Error ? e.message : String(e)}`;
+        res = null;
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!res) break;
+      json = await res.json().catch(() => null);
+      if (!TEMPORARY.has(res.status) || attempt === RETRIES) break;
+      retries += 1;
+      await sleep(2000 * (attempt + 1));
+    }
+    if (!res) {
       // Sem resposta: o consumo é desconhecido; conta-se o pior caso e pára.
       report.costUsd += worst;
-      report.steps.push({ ...base, http: null, accepted: false, costUsd: worst, detail: ctrl.signal.aborted ? 'Sem resposta a tempo.' : `Falha de rede: ${e instanceof Error ? e.message : String(e)}` });
+      report.steps.push({ ...base, http: null, accepted: false, costUsd: worst, detail: networkProblem });
       break;
-    } finally {
-      clearTimeout(timer);
     }
-    const json: unknown = await res.json().catch(() => null);
+    const again = retries ? ` (após ${retries} repetição(ões) por falha temporária)` : '';
     if (!res.ok) {
-      report.steps.push({ ...base, http: res.status, accepted: false, detail: json === null ? '(resposta sem JSON)' : providerErrorDiagnostic(JSON.stringify(json), 1500) });
+      const detail = json === null ? '(resposta sem JSON)' : providerErrorDiagnostic(JSON.stringify(json), 1500);
+      report.steps.push({ ...base, http: res.status, accepted: false, detail: TEMPORARY.has(res.status) ? `Interrompido: falha temporária do fornecedor${again}. ${detail}` : detail });
       if (res.status === 400) report.firstRejected = step.id;
       break;
     }
@@ -171,7 +196,7 @@ export async function runGeminiLadder(opts: {
     report.costUsd += cost;
     const steps = Array.isArray(it.steps) ? it.steps : [];
     const kinds = steps.map((s) => String(rec(s).type ?? '?')).join(', ');
-    report.steps.push({ ...base, http: res.status, accepted: true, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: cost, detail: `aceite · estado ${String(it.status ?? '?')} · passos: ${kinds || 'nenhum'}${known ? '' : ' · consumo desconhecido (contado o pior caso)'}` });
+    report.steps.push({ ...base, http: res.status, accepted: true, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: cost, detail: `aceite${again} · estado ${String(it.status ?? '?')} · passos: ${kinds || 'nenhum'}${known ? '' : ' · consumo desconhecido (contado o pior caso)'}` });
   }
   report.costUsd = Math.round(report.costUsd * 1e6) / 1e6;
   return report;
