@@ -595,3 +595,32 @@ Resumo do dia anterior em `docs/17-resumo-2026-09-29.md`. Detalhe desta entrega 
   - republicar `ai-propose` e `ai-admin` e publicar `ai-image`;
   - deploy do frontend, em conjunto com as funções (contrato v2).
 - **Por validar (pago):** a geração real com cada fornecedor e a geração real de imagens.
+
+## Atualização de 08/10/2026 (fim do dia) · Importação Elementor no formato antigo (0.4)
+
+**Problema:** «3 Página de venda MKT.json», um modelo Elementor 0.4 com secções e colunas clássicas, era recusado com «O ficheiro não tem a estrutura de um modelo Elementor».
+
+**Causas e correções** (`src/importers/elementor/`)
+1. **Recusa:** `isInner: ""` (texto vazio) falhava a validação, que esperava verdadeiro/falso, e um só elemento recusava o ficheiro inteiro.
+   - O esquema passa a aceitar `""`, `"1"`/`"0"`, `"true"`/`"false"` e números.
+   - Também aceita `id` numérico, `elements` nulo e `page_settings` como texto JSON ou lista.
+   - Os valores compostos em texto JSON passam a objetos. É uma proteção: este ficheiro trazia objetos normais.
+2. **Widgets sem adaptador**, que se perdiam:
+   - divider, spacer, testimonial, accordion clássico e icon (SVG) são agora convertidos;
+   - counter fica parcial: número final, sem a animação;
+   - video fica parcial: capa com o botão ▶ e ligação para o vídeo, sem iframe, porque a política de segurança só permite mapas;
+   - icon com Font Awesome fica parcial: a biblioteca não vem no ficheiro.
+3. **Layout das secções e colunas clássicas:**
+   - a altura «ecrã inteiro» e a altura mínima eram ignoradas, e um botão com `margin-top: -180px` numa secção seguinte sobrepunha-se ao topo;
+   - agora a secção converte a altura (`full` → 100vh, `min-height`), a posição do conteúdo, «boxed/full_width» e empilha as colunas no telemóvel;
+   - a coluna converte a largura (`_inline_size`), o alinhamento vertical e o espaço de 20 px entre widgets (o «Widgets Space» por omissão);
+   - `hide_mobile: "hidden-phone"`, a forma antiga, passa a esconder no telemóvel (4 elementos neste ficheiro).
+
+**Resultado com o ficheiro real** (lido em modo local, não copiado para o repositório)
+- 141 convertidos, 67 parciais e 0 não suportados.
+- Testemunhos, divisores, botões, acordeão e contador presentes.
+- O topo fica como no original.
+
+**Testes:** `tests/unit/elementorLegacy.test.ts` (fixture sintética) e um E2E em `tests/e2e/import.spec.ts`.
+
+**Formatos de importação disponíveis:** GrapesJS/Studio (.json, .grapesjs), Elementor (.json, containers e secções clássicas), HTML/CSS (com os CSS e as imagens) e ZIP de site estático. O JSON Bolt continua por fazer.

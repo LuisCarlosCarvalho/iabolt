@@ -11,15 +11,53 @@ export interface EElement {
   elements: EElement[];
 }
 
+/**
+ * Exportações do Elementor variam entre versões: `isInner` chega como booleano, `""`, `"1"`/`"0"`,
+ * `"true"`/`"false"` ou número (ex.: «3 Página de venda MKT.json», formato 0.4 com secções e
+ * colunas clássicas, com `isInner: ""`, que era recusado inteiro a 08/10/2026); `id` pode ser
+ * numérico; `elements` pode vir nulo.
+ */
+/**
+ * Proteção para exportações que tragam os valores compostos como TEXTO JSON
+ * (`"width": "{\"unit\":\"%\",\"size\":\"11\"}"`, `"tabs": "[{…}]"`): passam a objetos/listas.
+ * (Não era o caso de «3 Página de venda MKT.json», que traz objetos normais.)
+ * Texto normal (incluindo «[shortcode]» ou HTML) fica tal como está: só muda se for JSON válido
+ * de um objeto ou lista.
+ */
+export function normalizeSettings(s: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(s)) {
+    if (typeof v === 'string') {
+      const t = v.trim();
+      if ((t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'))) {
+        try {
+          const parsed: unknown = JSON.parse(t);
+          if (parsed && typeof parsed === 'object') {
+            out[k] = parsed;
+            continue;
+          }
+        } catch {
+          // não é JSON: é texto
+        }
+      }
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
+const looseBool = z.preprocess((v) => (v === undefined || v === null ? undefined : v === true || v === 1 || v === '1' || v === 'true' || v === 'yes'), z.boolean().optional());
+const looseId = z.preprocess((v) => (typeof v === 'number' ? String(v) : v), z.string().optional());
+
 const elementSchema: z.ZodType<EElement> = z.lazy(() =>
   z
     .object({
-      id: z.string().optional(),
+      id: looseId,
       elType: z.string().optional(),
       widgetType: z.string().optional(),
-      isInner: z.boolean().optional(),
-      settings: z.union([z.record(z.string(), z.unknown()), z.array(z.unknown()).transform(() => ({}))]).default({}),
-      elements: z.array(elementSchema).default([]),
+      isInner: looseBool,
+      settings: z.union([z.record(z.string(), z.unknown()).transform(normalizeSettings), z.array(z.unknown()).transform(() => ({}))]).default({}),
+      elements: z.preprocess((v) => (v === null ? [] : v), z.array(elementSchema).default([])),
     })
     .passthrough(),
 );
@@ -30,7 +68,11 @@ export const elementorDocumentSchema = z
     title: z.string().optional(),
     type: z.string().optional(),
     content: z.array(elementSchema),
-    page_settings: z.union([z.record(z.string(), z.unknown()), z.array(z.unknown()).transform(() => ({}))]).optional(),
+    // Também pode vir como texto JSON (formato antigo); texto que não seja um objeto é ignorado.
+    page_settings: z.preprocess(
+      (v) => (typeof v === 'string' ? (normalizeSettings({ v }).v ?? {}) : v),
+      z.union([z.record(z.string(), z.unknown()).transform(normalizeSettings), z.array(z.unknown()).transform(() => ({})), z.string().transform(() => ({}))]).optional(),
+    ),
   })
   .passthrough();
 
@@ -163,7 +205,10 @@ export function visibility(ds: DeviceStyles, s: Record<string, unknown>): void {
     ['hide_tablet', '(min-width: 768px) and (max-width: 1024px)'],
     ['hide_mobile', '(max-width: 767px)'],
   ];
-  for (const [key, media] of ranges) if (s[key] === 'hidden-desktop' || s[key] === 'hidden-tablet' || s[key] === 'hidden-mobile' || s[key] === 'yes') ds.add(freeRule(`#${ds.id}`, { display: 'none' }, media));
+  // Valores conhecidos: «hidden-desktop», «hidden-tablet», «hidden-mobile», «yes» e a forma antiga
+  // «hidden-phone» (modelos 0.4, ex.: «3 Página de venda MKT.json», 08/10/2026).
+  const on = (v: unknown) => typeof v === 'string' && /^(hidden-(desktop|tablet|mobile|phone)|yes)$/.test(v);
+  for (const [key, media] of ranges) if (on(s[key])) ds.add(freeRule(`#${ds.id}`, { display: 'none' }, media));
 }
 
 export function background(ds: DeviceStyles, s: Record<string, unknown>, prefix = 'background_'): string[] {

@@ -519,12 +519,273 @@ function htmlWidget(el: EElement, ctx: Ctx): ComponentJson | undefined {
   return { type: 'bolt-container', classes: ['elementor-html'], attributes: { id }, components: html };
 }
 
+/** Regras de um DeviceStyles para um seletor descendente (`#id …`). */
+function pushScoped(ctx: Ctx, ds: DeviceStyles, selector: string): void {
+  for (const r of ds.rules()) ctx.rules.push({ selectors: [], selectorsAdd: selector, style: r.style, ...(r.mediaText ? { mediaText: r.mediaText, atRuleType: 'media' } : {}) });
+}
+
+/** Tipografia com chaves «typography_<parte>_…» (ex.: contador) no formato «<prefixo>typography_…». */
+function remapTypography(s: Record<string, unknown>, part: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const from = `typography_${part}_`;
+  for (const [k, v] of Object.entries(s)) if (k.startsWith(from)) out[`${part}_typography_${k.slice(from.length)}`] = v;
+  return out;
+}
+
+/** Divisor: linha com cor, espessura, largura e alinhamento; o espaço vertical vem de «gap». */
+function divider(el: EElement, ctx: Ctx): ComponentJson {
+  const s = el.settings;
+  const id = makeId(ctx, el);
+  const ds = new DeviceStyles(id);
+  ds.set('desktop', { display: 'flex', 'padding-top': size(s.gap) ?? '15px', 'padding-bottom': size(s.gap) ?? '15px' });
+  commonWidgetStyles(ds, s);
+  const align = str(s.align);
+  ds.set('desktop', { 'justify-content': align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start' });
+  ctx.rules.push(...ds.rules());
+  const sep = new DeviceStyles(`${id}-sep`);
+  sep.set('desktop', { 'border-top-style': str(s.style) ?? 'solid', 'border-top-width': size(s.weight) ?? '1px', 'border-top-color': str(s.color) ?? '#000000', width: '100%' });
+  sep.responsive(s, 'width', (v) => ({ width: size(v) }));
+  ctx.rules.push(...sep.rules());
+  customCss(ctx, s, id);
+  ctx.report.add('convertido', 'divider', 'Divisor (linha)', 'cor, espessura, largura, alinhamento e espaço preservados');
+  return { type: 'bolt-container', classes: ['elementor-divider', ...classesOf(s)], attributes: { id }, components: [{ type: 'bolt-container', classes: ['elementor-divider-separator'], attributes: { id: `${id}-sep` } }] };
+}
+
+/** Espaçador: bloco vazio com a altura indicada (por omissão 50px, como no Elementor). */
+function spacer(el: EElement, ctx: Ctx): ComponentJson {
+  const s = el.settings;
+  const id = makeId(ctx, el);
+  const ds = new DeviceStyles(id);
+  ds.set('desktop', { height: size(s.space) ?? '50px' });
+  ds.responsive(s, 'space', (v) => ({ height: size(v) }));
+  commonWidgetStyles(ds, s);
+  ctx.rules.push(...ds.rules());
+  ctx.report.add('convertido', 'spacer', 'Espaço vertical', 'altura preservada (por dispositivo)');
+  return { type: 'bolt-container', classes: ['elementor-spacer', ...classesOf(s)], attributes: { id } };
+}
+
+/** Testemunho: texto, imagem, nome e cargo, com tipografia e cores. */
+function testimonial(el: EElement, ctx: Ctx): ComponentJson {
+  const s = el.settings;
+  const id = makeId(ctx, el);
+  const align = str(s.testimonial_alignment) ?? 'center';
+  const ds = new DeviceStyles(id);
+  ds.set('desktop', { display: 'flex', 'flex-direction': 'column', gap: '16px', 'text-align': align, 'align-items': align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center' });
+  commonWidgetStyles(ds, s);
+  ctx.rules.push(...ds.rules());
+  const content = new DeviceStyles(id);
+  content.set('desktop', { color: str(s.content_content_color) });
+  typography(content, s, 'content_', ctx.fonts);
+  pushScoped(ctx, content, `#${id} .elementor-testimonial-content`);
+  const name = new DeviceStyles(id);
+  name.set('desktop', { color: str(s.name_text_color), 'font-weight': '700' });
+  typography(name, s, 'name_', ctx.fonts);
+  pushScoped(ctx, name, `#${id} .elementor-testimonial-name`);
+  const job = new DeviceStyles(id);
+  job.set('desktop', { color: str(s.job_text_color) });
+  typography(job, s, 'job_', ctx.fonts);
+  pushScoped(ctx, job, `#${id} .elementor-testimonial-job`);
+  const img = rec(s.testimonial_image);
+  const src = registerImage(ctx, str(img?.url), 'testimonial');
+  const imgSize = size(s.image_size) ?? '60px';
+  ctx.rules.push(
+    freeRule(`#${id} .elementor-testimonial-image`, compactStyleRecord({ width: imgSize, height: imgSize, 'border-radius': '50%', 'object-fit': 'cover', 'border-style': str(s.image_border_border), 'border-color': str(s.image_border_color), ...dims(s.image_border_width, 'border-width') })),
+    freeRule(`#${id} .elementor-testimonial-meta`, { display: 'flex', 'align-items': 'center', gap: '12px' }),
+    freeRule(`#${id} .elementor-testimonial-details`, { display: 'flex', 'flex-direction': 'column', 'text-align': 'left' }),
+  );
+  customCss(ctx, s, id);
+  const details: ComponentJson[] = [
+    ...(str(s.testimonial_name) ? [{ type: 'text', tagName: 'div', classes: ['elementor-testimonial-name'], components: htmlComponents(str(s.testimonial_name) ?? '', ctx) }] : []),
+    ...(str(s.testimonial_job) ? [{ type: 'text', tagName: 'div', classes: ['elementor-testimonial-job'], components: htmlComponents(str(s.testimonial_job) ?? '', ctx) }] : []),
+  ];
+  ctx.report.add('convertido', 'testimonial', 'Testemunho (texto, imagem, nome e cargo)', 'conteúdo, tipografia e cores preservados');
+  return {
+    type: 'bolt-container',
+    classes: ['elementor-testimonial', ...classesOf(s)],
+    attributes: { id },
+    components: [
+      { type: 'text', tagName: 'div', classes: ['elementor-testimonial-content'], components: htmlComponents(str(s.testimonial_content) ?? '', ctx) },
+      {
+        type: 'bolt-container',
+        classes: ['elementor-testimonial-meta'],
+        components: [
+          ...(src ? [{ type: 'image', classes: ['elementor-testimonial-image'], attributes: { src, alt: str(s.testimonial_name) ?? '' } }] : []),
+          { type: 'bolt-container', classes: ['elementor-testimonial-details'], components: details },
+        ],
+      },
+    ],
+  };
+}
+
+/** Contador: número final (sem animação), prefixo, sufixo e título. */
+function counter(el: EElement, ctx: Ctx): ComponentJson {
+  const s = el.settings;
+  const id = makeId(ctx, el);
+  const ds = new DeviceStyles(id);
+  ds.set('desktop', { display: 'flex', 'flex-direction': 'column', 'align-items': 'center', 'text-align': 'center' });
+  commonWidgetStyles(ds, s);
+  ctx.rules.push(...ds.rules());
+  const num = new DeviceStyles(id);
+  num.set('desktop', { color: str(s.number_color), 'line-height': '1' });
+  typography(num, remapTypography(s, 'number'), 'number_', ctx.fonts);
+  pushScoped(ctx, num, `#${id} .elementor-counter-number`);
+  const title = new DeviceStyles(id);
+  title.set('desktop', { color: str(s.title_color) });
+  typography(title, remapTypography(s, 'title'), 'title_', ctx.fonts);
+  pushScoped(ctx, title, `#${id} .elementor-counter-title`);
+  customCss(ctx, s, id);
+  const value = `${str(s.prefix) ?? ''}${str(s.ending_number) ?? '100'}${str(s.suffix) ?? ''}`;
+  ctx.report.add('parcial', 'counter', 'Número (texto)', 'número final, prefixo, sufixo e título preservados; sem a animação de contagem');
+  return {
+    type: 'bolt-container',
+    classes: ['elementor-counter', ...classesOf(s)],
+    attributes: { id },
+    components: [
+      { type: 'text', tagName: 'div', classes: ['elementor-counter-number'], components: [{ type: 'textnode', content: value }] },
+      ...(str(s.title) ? [{ type: 'text', tagName: 'div', classes: ['elementor-counter-title'], components: htmlComponents(str(s.title) ?? '', ctx) }] : []),
+    ],
+  };
+}
+
+/**
+ * Vídeo: a imagem de capa (ou um bloco escuro) com o botão ▶ e uma ligação para o vídeo. Sem
+ * iframe de terceiros (a política de segurança das páginas só permite mapas incorporados).
+ */
+function video(el: EElement, ctx: Ctx): ComponentJson {
+  const s = el.settings;
+  const id = makeId(ctx, el);
+  const type = str(s.video_type) ?? 'youtube';
+  const url = str(type === 'vimeo' ? s.vimeo_url : type === 'dailymotion' ? s.dailymotion_url : type === 'hosted' ? rec(s.hosted_url)?.url : s.youtube_url);
+  const cover = registerImage(ctx, str(rec(s.image_overlay)?.url), 'video (capa)');
+  const ds = new DeviceStyles(id);
+  ds.set('desktop', { position: 'relative', 'aspect-ratio': '16 / 9', overflow: 'hidden', 'background-color': '#000000' });
+  commonWidgetStyles(ds, s);
+  ctx.rules.push(...ds.rules());
+  ctx.rules.push(
+    freeRule(`#${id} .elementor-video-cover`, { width: '100%', height: '100%', 'object-fit': 'cover', display: 'block' }),
+    freeRule(`#${id} .elementor-video-play`, compactStyleRecord({ position: 'absolute', inset: '0', display: 'flex', 'align-items': 'center', 'justify-content': 'center', color: str(s.play_icon_color) ?? '#ffffff', 'font-size': size(s.play_icon_size) ?? '72px', 'text-decoration': 'none', 'text-shadow': '0 2px 12px rgba(0,0,0,.5)' })),
+  );
+  customCss(ctx, s, id);
+  ctx.report.add('parcial', 'video', 'Vídeo (capa com ligação)', url ? `capa e ligação para o vídeo (${type}) preservadas; o vídeo abre no site de origem` : 'sem endereço de vídeo no ficheiro');
+  const play: ComponentJson = { type: 'link', classes: ['elementor-video-play'], attributes: { href: url ?? '#', target: '_blank', rel: 'noopener noreferrer', title: 'Ver o vídeo' }, components: [{ type: 'textnode', content: '▶' }] };
+  return {
+    type: 'bolt-container',
+    classes: ['elementor-video', ...classesOf(s)],
+    attributes: { id },
+    components: [...(cover ? [{ type: 'image', classes: ['elementor-video-cover'], attributes: { src: cover, alt: 'Capa do vídeo' } }] : []), play],
+  };
+}
+
+/** Ícone: SVG externo como imagem; ícones de biblioteca de fonte não vêm no ficheiro. */
+function iconWidget(el: EElement, ctx: Ctx): ComponentJson | undefined {
+  const s = el.settings;
+  const icon = iconOf(ctx, s.selected_icon, 'icon');
+  if (!icon.def) {
+    ctx.report.add('parcial', 'icon', '—', icon.partial ?? 'ícone sem ficheiro: não importado');
+    return undefined;
+  }
+  const id = makeId(ctx, el);
+  const ds = new DeviceStyles(id);
+  ds.responsive(s, 'align', (v) => ({ 'text-align': str(v) }));
+  commonWidgetStyles(ds, s);
+  ctx.rules.push(...ds.rules(), freeRule(`#${id} .elementor-icon`, { width: size(s.size) ?? '50px', height: size(s.size) ?? '50px' }));
+  customCss(ctx, s, id);
+  ctx.report.add('convertido', 'icon', 'Ícone (imagem SVG)', 'ícone SVG preservado como imagem');
+  return { type: 'bolt-container', classes: ['elementor-icon-wrapper', ...classesOf(s)], attributes: { id }, components: [icon.def] };
+}
+
+/** Acordeão clássico («accordion»: separadores com título e HTML) → <details>/<summary>. */
+function classicAccordion(el: EElement, ctx: Ctx): ComponentJson {
+  const s = el.settings;
+  const id = makeId(ctx, el);
+  const ds = new DeviceStyles(id);
+  ds.set('desktop', { display: 'flex', 'flex-direction': 'column' });
+  commonWidgetStyles(ds, s);
+  ctx.rules.push(...ds.rules());
+  const itemSel = `#${id} > details`;
+  ctx.rules.push(
+    freeRule(itemSel, compactStyleRecord({ 'border-style': size(s.border_width) ? 'solid' : undefined, 'border-width': size(s.border_width), 'border-color': str(s.border_color) })),
+    freeRule(`${itemSel} > summary`, compactStyleRecord({ cursor: 'pointer', 'list-style': 'none', margin: '0', 'background-color': str(s.title_background), color: str(s.title_color), ...dims(s.title_padding, 'padding') })),
+    freeRule(`${itemSel} > summary::-webkit-details-marker`, { display: 'none' }),
+    freeRule(`${itemSel} > summary > *`, { margin: '0', font: 'inherit', color: 'inherit' }),
+    freeRule(`${itemSel} > .elementor-tab-content`, compactStyleRecord({ color: str(s.content_color), ...dims(s.content_padding, 'padding') })),
+  );
+  if (str(s.tab_active_color)) ctx.rules.push(freeRule(`${itemSel}[open] > summary`, { color: String(s.tab_active_color) }));
+  const title = new DeviceStyles(id);
+  typography(title, s, 'title_', ctx.fonts);
+  pushScoped(ctx, title, `${itemSel} > summary`);
+  const content = new DeviceStyles(id);
+  typography(content, s, 'content_', ctx.fonts);
+  pushScoped(ctx, content, `${itemSel} > .elementor-tab-content`);
+  customCss(ctx, s, id);
+  const tag = /^(h[1-6]|div|span|p)$/.test(str(s.title_html_tag) ?? '') ? String(s.title_html_tag) : 'div';
+  const tabs = Array.isArray(s.tabs) ? s.tabs.map((t) => rec(t) ?? {}) : [];
+  ctx.report.add('convertido', 'accordion', 'Acordeão (<details>/<summary>)', `${tabs.length} separadores; abre e fecha sem JavaScript`);
+  return {
+    type: 'bolt-accordion',
+    classes: ['elementor-accordion', ...classesOf(s)],
+    attributes: { id },
+    components: tabs.map((t, i) => ({
+      type: 'bolt-accordion-item',
+      attributes: { id: `${id}-i${i}` },
+      components: [
+        { type: 'bolt-accordion-title', tagName: 'summary', attributes: { id: `${id}-t${i}` }, components: [{ type: 'text', tagName: tag, components: htmlComponents(str(t.tab_title) ?? '', ctx) }] },
+        { type: 'text', tagName: 'div', classes: ['elementor-tab-content'], components: htmlComponents(str(t.tab_content) ?? '', ctx) },
+      ],
+    })),
+  };
+}
+
+const VERTICAL: Record<string, string> = { top: 'flex-start', middle: 'center', center: 'center', bottom: 'flex-end' };
+
+/**
+ * Secções e colunas CLÁSSICAS do Elementor nas chaves dos containers (08/10/2026, «3 Página de
+ * venda MKT.json»: sem isto, o topo «altura do ecrã» ficava baixo e um botão com margem −180px de
+ * uma secção seguinte sobrepunha-se ao conteúdo).
+ *  - secção: `height` full → min-height 100vh; `min-height` + `custom_height` (e `height_inner` +
+ *    `custom_height_inner` nas interiores) → min-height; `content_position` → alinhamento vertical
+ *    das colunas; `layout` full_width/boxed e `content_width` (largura da caixa); no telemóvel as
+ *    colunas empilham (como no Elementor);
+ *  - coluna: largura `_inline_size` (ou `_column_size`) em %, `content_position` → alinhamento
+ *    vertical do conteúdo; 100% no telemóvel.
+ */
+function classicSettings(el: EElement): Record<string, unknown> {
+  const s = el.settings;
+  if (el.elType === 'column') {
+    const width = str(s._inline_size) ?? str(s._column_size);
+    const vertical = VERTICAL[str(s.content_position) ?? ''];
+    return {
+      ...s,
+      flex_direction: 'column',
+      content_width: 'full',
+      ...(width ? { width: { unit: '%', size: width }, width_mobile: { unit: '%', size: '100' } } : {}),
+      ...(vertical && !s.flex_justify_content ? { flex_justify_content: vertical } : {}),
+      // «Widgets Space» por omissão do Elementor clássico: 20px entre widgets de uma coluna.
+      flex_gap: s.flex_gap ?? { unit: 'px', size: '20', column: '20', row: '20' },
+    };
+  }
+  const height = str(s.height) ?? str(s.height_inner);
+  const custom = s.custom_height ?? s.custom_height_inner;
+  const minHeight = height === 'full' ? { unit: 'vh', size: '100' } : height === 'min-height' && custom ? custom : undefined;
+  const vertical = VERTICAL[str(s.content_position) ?? ''];
+  return {
+    ...s,
+    flex_direction: 'row',
+    flex_direction_mobile: s.flex_direction_mobile ?? 'column',
+    content_width: str(s.layout) === 'full_width' ? 'full' : 'boxed',
+    ...(rec(s.content_width) ? { boxed_width: s.content_width } : {}),
+    ...(minHeight && !s.min_height ? { min_height: minHeight } : {}),
+    ...(vertical && !s.flex_align_items ? { flex_align_items: vertical } : {}),
+    flex_gap: s.flex_gap ?? { unit: 'px', size: '0', column: '0', row: '0' },
+  };
+}
+
 function element(el: EElement, ctx: Ctx, parentRow: boolean): ComponentJson | undefined {
   note3rd(ctx, el.settings);
   if (el.elType === 'container') return container(el, ctx, parentRow);
   if (el.elType === 'section' || el.elType === 'column') {
-    ctx.report.add('parcial', el.elType, 'Contentor', 'secções/colunas clássicas convertidas como contentores simples');
-    return container({ ...el, settings: { ...el.settings, flex_direction: el.elType === 'section' ? 'row' : 'column' } }, ctx, parentRow);
+    ctx.report.add('convertido', el.elType, 'Contentor', el.elType === 'section' ? 'secção clássica: altura, posição do conteúdo e largura convertidas; colunas empilham no telemóvel' : 'coluna clássica: largura e alinhamento convertidos; 100% no telemóvel');
+    return container({ ...el, settings: classicSettings(el) }, ctx, parentRow);
   }
   if (el.elType !== 'widget') {
     ctx.report.add('nao-suportado', el.elType ?? 'desconhecido', '—', 'tipo de elemento desconhecido: ignorado');
@@ -549,6 +810,20 @@ function element(el: EElement, ctx: Ctx, parentRow: boolean): ComponentJson | un
       return accordion(el, ctx);
     case 'html':
       return htmlWidget(el, ctx);
+    case 'divider':
+      return divider(el, ctx);
+    case 'spacer':
+      return spacer(el, ctx);
+    case 'testimonial':
+      return testimonial(el, ctx);
+    case 'counter':
+      return counter(el, ctx);
+    case 'video':
+      return video(el, ctx);
+    case 'icon':
+      return iconWidget(el, ctx);
+    case 'accordion':
+      return classicAccordion(el, ctx);
     default: {
       ctx.report.add('nao-suportado', `widget:${el.widgetType ?? '?'}`, '—', 'widget sem adaptador: não importado');
       return undefined;

@@ -277,3 +277,53 @@ test('formato não suportado e ficheiro inválido dão erro claro sem criar proj
   await page.goto('/');
   await expect(page.getByTestId('project-card')).toHaveCount(0);
 });
+
+test('Elementor no formato antigo (0.4: secções clássicas, isInner "", valores em texto JSON): importa sem erro, com testemunho, divisor, contador e acordeão', async ({ page }) => {
+  await offlineImages(page);
+  await page.route(/exemplo\.pt/, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG, headers: { 'access-control-allow-origin': '*' } }));
+  const j = (v: unknown) => JSON.stringify(v);
+  const w = (id: string, widgetType: string, settings: Record<string, unknown>) => ({ id, elType: 'widget', widgetType, isInner: '', settings, elements: [] });
+  // FIXTURE SINTÉTICA com a estrutura de «3 Página de venda MKT.json» (recusado a 08/10/2026).
+  const legacy = {
+    version: '0.4',
+    title: 'Página de vendas (teste)',
+    type: 'page',
+    content: [
+      {
+        id: 'sec1',
+        elType: 'section',
+        isInner: '',
+        settings: { background_background: 'classic', background_color: '#1C186F' },
+        elements: [
+          {
+            id: 'col1',
+            elType: 'column',
+            isInner: '',
+            settings: { _column_size: 100 },
+            elements: [
+              w('h1', 'heading', { title: 'Oferta especial', header_size: 'h1' }),
+              w('dv1', 'divider', { color: '#E69B07', width: j({ unit: '%', size: '11' }), weight: j({ unit: 'px', size: 3 }) }),
+              w('tm1', 'testimonial', { testimonial_content: 'Recomendo a todos.', testimonial_name: 'Ana Teste', testimonial_job: 'Cliente', testimonial_image: j({ url: 'https://exemplo.pt/foto.png' }) }),
+              w('ct1', 'counter', { prefix: 'R$', ending_number: '197', title: 'por mês' }),
+              w('ac1', 'accordion', { tabs: j([{ tab_title: 'Pergunta 1?', tab_content: '<p>Resposta 1</p>' }]) }),
+            ],
+          },
+        ],
+      },
+    ],
+    page_settings: [],
+  };
+  await page.goto('/');
+  await page.getByTestId('open-import').click();
+  await page.getByTestId('import-file').setInputFiles({ name: 'pagina-de-vendas.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(legacy)) });
+  await expect(page.getByTestId('import-review')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText('não tem a estrutura de um modelo Elementor')).toHaveCount(0);
+  await confirmImport(page, `Elementor antigo ${Date.now()}`);
+  const c = canvas(page);
+  await expect(c.locator('h1')).toHaveText('Oferta especial');
+  await expect(c.locator('.elementor-testimonial-content')).toHaveText('Recomendo a todos.');
+  await expect(c.locator('.elementor-testimonial-name')).toHaveText('Ana Teste');
+  await expect(c.locator('.elementor-counter-number')).toHaveText('R$197');
+  await expect(c.locator('.elementor-divider-separator')).toHaveCount(1);
+  await expect(c.locator('details summary')).toContainText('Pergunta 1?');
+});
