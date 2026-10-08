@@ -413,6 +413,9 @@ function ProviderCard({
   onRemove: () => void;
 }) {
   const [draft, setDraft] = useState('');
+  /** Cloudflare: o Account ID (não é secreto) vai junto com o token, como «ACCOUNT_ID:TOKEN». */
+  const [accountId, setAccountId] = useState('');
+  const cloudflare = provider === 'cloudflare';
   const [note, setNote] = useState<string | null>(null);
   const k = view.settings.keys[provider];
   const route = routing(view);
@@ -423,9 +426,15 @@ function ProviderCard({
 
   const save = (e: FormEvent) => {
     e.preventDefault();
-    const key = draft.trim();
-    if (key.length < 20 || /\s/.test(key)) {
-      setNote('A chave parece incompleta ou tem espaços: cole a chave completa, tal como o fornecedor a mostra.');
+    const token = draft.trim();
+    const account = accountId.trim();
+    if (cloudflare && !/^[0-9a-f]{32}$/i.test(account)) {
+      setNote('O Account ID tem 32 caracteres (letras a–f e números): copie-o da página inicial da conta Cloudflare.');
+      return;
+    }
+    const key = cloudflare ? `${account}:${token}` : token;
+    if (token.length < 20 || /\s/.test(token)) {
+      setNote(cloudflare ? 'O token parece incompleto ou tem espaços: cole o token completo, tal como a Cloudflare o mostra.' : 'A chave parece incompleta ou tem espaços: cole a chave completa, tal como o fornecedor a mostra.');
       return;
     }
     // O campo é limpo já: a chave não fica no estado da página depois de enviada.
@@ -498,8 +507,30 @@ function ProviderCard({
         </div>
       </dl>
       <form className="ai-key-form" onSubmit={save}>
+        {cloudflare && (
+          <>
+            <p className="hint" data-testid="ai-cloudflare-help">
+              Gera as imagens de graça (cerca de 170 por dia) e passa a ser usada sozinha para as imagens assim que a credencial for reconhecida. Na Cloudflare:
+              «Workers AI» → «Use REST API»: copie o «Account ID» e clique «Create a Workers AI API Token» → «Create API Token» → «Copy API Token» (o token só é mostrado uma vez).
+            </p>
+            <label className="field">
+              <span>Account ID</span>
+              <input
+                className="input"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
+                placeholder="32 caracteres, ex.: 0123456789abcdef0123456789abcdef"
+                disabled={busy !== null}
+                data-testid="ai-account-input-cloudflare"
+              />
+            </label>
+          </>
+        )}
         <label className="field">
-          <span>{k.configured ? 'Substituir por uma chave nova' : 'Chave de API'}</span>
+          <span>{cloudflare ? (k.configured ? 'Substituir por um token novo' : 'API Token') : k.configured ? 'Substituir por uma chave nova' : 'Chave de API'}</span>
           <input
             className="input"
             type="password"
@@ -513,8 +544,8 @@ function ProviderCard({
           />
         </label>
         <div className="ai-key-actions">
-          <Button type="submit" variant="primary" disabled={busy !== null || draft.trim().length === 0} data-testid={`ai-key-save-${provider}`}>
-            {busy === `key-${provider}` ? 'A verificar…' : k.configured ? 'Substituir chave' : 'Guardar chave'}
+          <Button type="submit" variant="primary" disabled={busy !== null || draft.trim().length === 0 || (cloudflare && accountId.trim().length === 0)} data-testid={`ai-key-save-${provider}`}>
+            {busy === `key-${provider}` ? 'A verificar…' : k.configured ? (cloudflare ? 'Substituir token' : 'Substituir chave') : cloudflare ? 'Guardar token' : 'Guardar chave'}
           </Button>
           <Button
             disabled={busy !== null || !k.configured}

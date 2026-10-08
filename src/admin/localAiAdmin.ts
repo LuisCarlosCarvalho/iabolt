@@ -25,6 +25,16 @@ export const LOCAL_MODELS: AdminModel[] = [
   { provider: 'openai', model: 'gpt-6-luna', label: 'GPT-6 Luna', capability: 'edit', price_image: null, note: null, prices: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.1 } },
   { provider: 'openai', model: 'gpt-6.1-sol', preference: 20, label: 'GPT-6.1 Sol', capability: 'edit', price_image: null, note: 'Preços de contexto curto; pedidos do assistente ficam muito abaixo do limite de contexto longo.', prices: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2 } },
   { provider: 'openai', model: 'gpt-6-astra', label: 'GPT-6 Astra', capability: 'edit', price_image: null, note: null, prices: { input: 10, output: 50, cacheRead: 1, cacheWrite: 10 } },
+  {
+    provider: 'cloudflare',
+    model: '@cf/black-forest-labs/flux-1-schnell',
+    preference: 1,
+    label: 'FLUX.1 schnell (Cloudflare)',
+    capability: 'image',
+    price_image: 0.001,
+    note: 'Grátis até 10 000 neurons por dia (cerca de 170 imagens); acima disso, cerca de 0,0006 USD por imagem no plano pago. Imagens quadradas (1024 px).',
+    prices: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  },
 ];
 
 type KeyStatus = 'none' | 'valid' | 'invalid';
@@ -88,7 +98,7 @@ export function createLocalAiAdmin(checkKey?: (key: string, provider: ProviderId
     reservation_ttl_seconds: 300,
     monthly_budget_usd: 25,
   };
-  const keys: Record<ProviderId, KeyState> = { anthropic: emptyKey(), openai: emptyKey(), google: emptyKey() };
+  const keys: Record<ProviderId, KeyState> = { anthropic: emptyKey(), openai: emptyKey(), google: emptyKey(), cloudflare: emptyKey() };
   const meta = { version: 1, updatedAt: now(), updatedBy: null as string | null };
   /** «Cofre» em memória (só nesta página). */
   const vault = new Map<string, string>();
@@ -125,7 +135,7 @@ export function createLocalAiAdmin(checkKey?: (key: string, provider: ProviderId
   const view = () => ({
     settings: {
       ...settings,
-      keys: { anthropic: keyView(keys.anthropic), openai: keyView(keys.openai), google: keyView(keys.google) },
+      keys: { anthropic: keyView(keys.anthropic), openai: keyView(keys.openai), google: keyView(keys.google), cloudflare: keyView(keys.cloudflare) },
       version: meta.version,
       updated_at: meta.updatedAt,
       updated_by_email: meta.updatedBy,

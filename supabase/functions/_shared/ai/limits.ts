@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PROVIDER_IDS } from './ids.ts';
 
 /**
  * Limites do Assistente IA. FONTE ÚNICA: a configuração central `ai_settings` (gerida no painel
@@ -67,13 +68,13 @@ const num = z.coerce.number().finite();
 /** Resultado de `ai_runtime_settings()` (configuração em vigor + preços do modelo; sem segredos). */
 export const RuntimeSettings = z.object({
   enabled: z.boolean(),
-  provider: z.enum(['anthropic', 'openai', 'google']),
+  provider: z.enum(PROVIDER_IDS),
   model: z.string().min(1).max(80),
   model_label: z.string().max(80),
   /** Estado da chave do fornecedor de EDIÇÃO. */
   key_status: z.enum(['none', 'valid', 'invalid']),
   image_enabled: z.boolean().default(false),
-  image_provider: z.enum(['anthropic', 'openai', 'google']).nullable().default(null),
+  image_provider: z.enum(PROVIDER_IDS).nullable().default(null),
   image_model: z.string().max(80).nullable().default(null),
   image_label: z.string().max(80).nullable().default(null),
   image_key_status: z.enum(['none', 'valid', 'invalid']).default('none'),

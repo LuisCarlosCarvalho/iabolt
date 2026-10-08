@@ -346,3 +346,42 @@ Os custos, preços, reservas, orçamento e o consumo por pedido ficam visíveis 
 - A Interactions API recusa `maxItems`/`minItems` nos `parameters` das funções. Isto foi comprovado com o diagnóstico progressivo; a evidência está em `docs/10`.
 - `geminiToolSchema()` retira-os. O limite de operações continua no servidor e no editor.
 - Painel: Configurações de IA → cartão Google → «Diagnóstico do pedido». É só para administradores, pago, com teto de 0,02 USD, e sonda o esquema palavra a palavra até ao pedido real.
+
+## Cloudflare Workers AI: imagens gratuitas e automáticas (08/10/2026)
+
+**O que é**
+- Fornecedor só de imagens: `@cf/black-forest-labs/flux-1-schnell` (licença Apache 2.0).
+- Plano gratuito de 10 000 neurons por dia, cerca de 170 imagens de 1024 px; no plano gratuito, ao passar o limite o pedido é recusado em vez de cobrado.
+- No plano pago, cerca de 0,0006 USD por imagem; o teto usado na reserva é 0,001 USD.
+- As imagens saem quadradas: o modelo não aceita largura nem altura.
+
+**Credencial**
+- É o Account ID mais um API Token com a permissão «Workers AI».
+- O painel junta os dois como `ACCOUNT_ID:TOKEN` antes de enviar; o cofre guarda-os como uma chave e o token nunca volta ao browser.
+- O teste sem custo faz `GET /accounts/{id}/ai/models/search?per_page=1`, que confirma o token e o Account ID.
+
+**Escolha automática**
+- O FLUX tem `preference 1` nas imagens (o Gemini Image tem 10).
+- Ao guardar uma credencial reconhecida, a Cloudflare fica ativa sozinha, por ser um fornecedor só de imagens. A escolha automática (`ai__route`) passa as imagens para ela.
+- Se for desativada ou a chave for recusada, as imagens voltam ao fornecedor ativo seguinte.
+- A edição não muda.
+
+**Código**
+- `supabase/functions/_shared/ai/cloudflare.ts` (adaptador e teste da credencial).
+- `registry.ts`, `ids.ts` e `limits.ts`.
+- Migração `20261008120000_ia_cloudflare.sql`.
+- Cartão no painel com os campos «Account ID» e «API Token».
+
+**Publicação (por esta ordem)**
+1. A migração.
+2. As funções `ai-propose`, `ai-image` e `ai-admin`. Todas leem `ai_settings`, e as versões anteriores não conhecem o fornecedor `cloudflare`.
+3. O frontend.
+4. Só depois guardar o token no painel.
+
+Separadores abertos com a versão anterior do painel precisam de F5 depois de a Cloudflare ficar ativa.
+
+**Testes**
+- Unitários: `aiCloudflare.test.ts` e `aiAdmin.test.ts` (ativação automática e compatibilidade).
+- Base de dados: `ai_cloudflare.test.ts`.
+- E2E: `ai-settings.spec.ts`.
+- Todos com respostas simuladas. A primeira imagem real valida a integração.

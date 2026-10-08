@@ -196,3 +196,35 @@ test('[simulado] diagnóstico do pedido ao Gemini: só no cartão Google com cha
   await expect(page.getByTestId('ai-diagnosis-report')).toHaveCount(0);
   expect(external).toEqual([]);
 });
+
+test('[simulado] Cloudflare: Account ID + token; ao guardar fica ativa e as imagens passam para ela sozinhas; substituir o token', async ({ page }) => {
+  const external = watchExternal(page);
+  await openSettings(page);
+  const card = page.getByTestId('ai-provider-cloudflare');
+  await expect(card).toContainText('Cloudflare Workers AI');
+  await expect(card.getByTestId('ai-cloudflare-help')).toContainText('Use REST API');
+  // Os dois campos são obrigatórios; o token é um campo de palavra-passe.
+  await expect(page.getByTestId('ai-key-input-cloudflare')).toHaveAttribute('type', 'password');
+  await page.getByTestId('ai-key-input-cloudflare').fill('token-de-teste-cloudflare-0000000000CFTK');
+  await expect(page.getByTestId('ai-key-save-cloudflare')).toBeDisabled();
+  await page.getByTestId('ai-account-input-cloudflare').fill('conta-errada');
+  await page.getByTestId('ai-key-save-cloudflare').click();
+  await expect(card).toContainText('O Account ID tem 32 caracteres');
+  await page.getByTestId('ai-account-input-cloudflare').fill('0123456789abcdef0123456789abcdef');
+  await page.getByTestId('ai-key-input-cloudflare').fill('token-de-teste-cloudflare-0000000000CFTK');
+  await page.getByTestId('ai-key-save-cloudflare').click();
+  await expect(page.getByTestId('ai-key-status-cloudflare')).toContainText('Chave configurada');
+  // Sem passo manual: fica ativa e passa a gerar as imagens.
+  await expect(toggle(page, 'cloudflare')).toBeChecked();
+  await expect(page.getByTestId('ai-route-image')).toContainText('FLUX.1 schnell');
+  await expect(card).toContainText('Em uso: imagens');
+  // O token não fica na página.
+  expect(await everything(page)).not.toContain('token-de-teste-cloudflare-0000000000CFTK');
+  // Substituir por outro token: o campo existe, e continua ativa e em uso.
+  await expect(page.getByTestId('ai-key-save-cloudflare')).toHaveText(/Substituir token/);
+  await page.getByTestId('ai-key-input-cloudflare').fill('token-de-teste-cloudflare-00000000000NOVO');
+  await page.getByTestId('ai-key-save-cloudflare').click();
+  await expect(page.getByTestId('ai-key-status-cloudflare')).toContainText('…NOVO');
+  await expect(page.getByTestId('ai-route-image')).toContainText('FLUX.1 schnell');
+  expect(external).toEqual([]);
+});

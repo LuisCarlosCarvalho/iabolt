@@ -91,8 +91,8 @@ describe('esquema portável', () => {
     expect(AiProposal.safeParse({ summary: 's', operations: Array.from({ length: 201 }, (_, i) => ({ op: 'remove', id: `n${i}` })) }).success).toBe(false);
   });
 
-  it('registo: só os três fornecedores implementados; a Anthropic não gera imagens', () => {
-    expect([...PROVIDER_IDS]).toEqual(['anthropic', 'openai', 'google']);
+  it('registo: só os quatro fornecedores implementados (a Cloudflare só imagens, desde 08/10); a Anthropic não gera imagens', () => {
+    expect([...PROVIDER_IDS]).toEqual(['anthropic', 'openai', 'google', 'cloudflare']);
     const { fetch } = fakeFetch([]);
     expect(makeImageGenerator('anthropic', { apiKey: 'k', model: 'm', fetch })).toBeNull();
     expect(makeImageGenerator('google', { apiKey: 'k', model: 'm', fetch })).not.toBeNull();

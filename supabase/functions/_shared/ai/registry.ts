@@ -1,8 +1,9 @@
+import { cloudflareCheck, cloudflareImageGenerator } from './cloudflare.ts';
 import { googleCheck, googleImageGenerator, googleProvider, googleRequestBody } from './google.ts';
 import type { ImageGenerator } from './images.ts';
 import { openaiCheck, openaiImageGenerator, openaiProvider, openaiRequestBody } from './openai.ts';
 import { SYSTEM_PROMPT } from './prompt.ts';
-import { anthropicCheck, anthropicProvider, requestBody as anthropicRequestBody, type AiProvider, type FetchLike, type KeyCheck } from './provider.ts';
+import { anthropicCheck, anthropicProvider, ProviderError, requestBody as anthropicRequestBody, type AiProvider, type FetchLike, type KeyCheck } from './provider.ts';
 
 /**
  * Registo dos fornecedores com adaptador IMPLEMENTADO. Só estes aparecem no painel.
@@ -32,6 +33,14 @@ export function makeEditProvider(provider: ProviderId, o: AdapterOpts): AiProvid
       return openaiProvider(o);
     case 'google':
       return googleProvider(o);
+    case 'cloudflare':
+      // Só imagens: nunca é escolhida para a edição (não tem modelos de edição no catálogo).
+      return {
+        model: o.model,
+        propose: async () => {
+          throw new ProviderError('A Cloudflare só gera imagens; não faz edição.', false, 'none');
+        },
+      };
   }
 }
 
@@ -44,6 +53,8 @@ export function makeImageGenerator(provider: ProviderId, o: AdapterOpts): ImageG
       return openaiImageGenerator(o);
     case 'google':
       return googleImageGenerator(o);
+    case 'cloudflare':
+      return cloudflareImageGenerator(o);
   }
 }
 
@@ -56,6 +67,8 @@ export function checkProviderKey(provider: ProviderId, o: AdapterOpts & { kind: 
       return openaiCheck(o);
     case 'google':
       return googleCheck(o);
+    case 'cloudflare':
+      return cloudflareCheck(o);
   }
 }
 
@@ -71,5 +84,7 @@ export function sentTextFor(provider: ProviderId, model: string, user: string, m
       return JSON.stringify(openaiRequestBody(model, SYSTEM_PROMPT, user, maxOutputTokens));
     case 'google':
       return JSON.stringify(googleRequestBody(model, SYSTEM_PROMPT, user, maxOutputTokens));
+    case 'cloudflare':
+      return '';
   }
 }

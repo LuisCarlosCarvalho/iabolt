@@ -56,7 +56,7 @@ describe('Configurações de IA · autorização (PGlite)', () => {
     const s = (await db.query<{ enabled: boolean; image_enabled: boolean; model: string }>('select enabled, image_enabled, model from public.ai_settings')).rows[0];
     expect(s).toEqual({ enabled: false, image_enabled: false, model: 'claude-sonnet-5-5' });
     const keys = (await db.query<{ provider: string; key_status: string }>('select provider, key_status from public.ai_provider_keys order by provider')).rows;
-    expect(keys).toEqual([{ provider: 'anthropic', key_status: 'none' }, { provider: 'google', key_status: 'none' }, { provider: 'openai', key_status: 'none' }]);
+    expect(keys).toEqual([{ provider: 'anthropic', key_status: 'none' }, { provider: 'cloudflare', key_status: 'none' }, { provider: 'google', key_status: 'none' }, { provider: 'openai', key_status: 'none' }]);
   });
 
   it('owner de workspace ou email admin@… não é administrador; ai_whoami só é verdadeiro para o administrador', async () => {

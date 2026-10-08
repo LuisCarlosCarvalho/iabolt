@@ -83,6 +83,9 @@ export const AdminKey = z.object({
 });
 export type AdminKey = z.infer<typeof AdminKey>;
 
+/** Chave de um fornecedor que o servidor ainda não conhece (antes da migração que o acrescenta). */
+const NO_KEY: AdminKey = { configured: false, last4: null, fingerprint: null, status: 'none', tested_at: null, updated_at: null, enabled: false };
+
 export const AdminSettings = z.object({
   enabled: z.boolean(),
   provider: Provider,
@@ -103,7 +106,8 @@ export const AdminSettings = z.object({
   timeout_ms: int,
   reservation_ttl_seconds: int,
   monthly_budget_usd: num,
-  keys: z.object({ anthropic: AdminKey, openai: AdminKey, google: AdminKey }),
+  // Cloudflare: migração 20261008120000; um servidor anterior não a devolve (fica «sem chave»).
+  keys: z.object({ anthropic: AdminKey, openai: AdminKey, google: AdminKey, cloudflare: AdminKey.default(NO_KEY) }),
   version: int,
   updated_at: z.string(),
   updated_by_email: z.string().nullable(),
@@ -349,7 +353,11 @@ export async function handleAdmin(authHeader: string | null, rawBody: string, de
         const secretId = await deps.stageKey(actor, provider, key, key.slice(-4), await keyFingerprint(key));
         const check = await deps.checkKey(provider, target.model, key, target.kind);
         if (check.ok) {
-          const view = parseView(await deps.activateKey(actor, provider, secretId));
+          let view = parseView(await deps.activateKey(actor, provider, secretId));
+          // Fornecedor só de imagens (Cloudflare): fica ativo ao guardar a chave reconhecida, para a
+          // geração de imagens passar a usá-lo sozinha (escolha automática), sem passo manual.
+          const imageOnly = view.models.some((m) => m.provider === provider) && view.models.every((m) => m.provider !== provider || m.capability === 'image');
+          if (imageOnly && view.settings.keys[provider].enabled !== true) view = parseView(await deps.setEnabled(actor, provider, true));
           if (check.warning) {
             return { status: 200, body: { view, message: `Chave ${label} guardada (…${key.slice(-4)}). ${check.warning}`, test: { ok: false, definitive: false, message: check.warning, cost: TEST_COST_NOTE } } };
           }

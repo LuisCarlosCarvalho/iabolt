@@ -288,3 +288,39 @@ describe('[simulado] ai-admin · diagnóstico progressivo do Gemini (pago, com t
     expect(JSON.stringify(r.body)).not.toContain(KEY_GOOGLE);
   });
 });
+
+describe('[simulado] ai-admin · Cloudflare (imagens gratuitas, escolha automática)', () => {
+  const KEY_CF = '0123456789abcdef0123456789abcdef:token-de-teste-cloudflare-000CFTK';
+  it('guardar a credencial reconhecida ativa a Cloudflare e as imagens passam para o FLUX sozinhas; a edição não muda', async () => {
+    const deps = createLocalAiAdmin();
+    await send(deps, { action: 'setKey', provider: 'google', key: KEY_GOOGLE });
+    await send(deps, { action: 'setEnabled', provider: 'google', enabled: true });
+    let view = (await send(deps, { action: 'get' })).body.view;
+    expect(view?.settings).toMatchObject({ provider: 'google', image_provider: 'google', image_model: 'gemini-3.1-flash-image' });
+    // Uma chave de edição não se ativa sozinha; a da Cloudflare (só imagens) sim.
+    const r = await send(deps, { action: 'setKey', provider: 'cloudflare', key: KEY_CF });
+    expect(r.status).toBe(200);
+    view = r.body.view;
+    expect(view?.settings.keys.cloudflare).toMatchObject({ configured: true, status: 'valid', enabled: true, last4: 'CFTK' });
+    expect(view?.settings).toMatchObject({ enabled: true, provider: 'google', image_enabled: true, image_provider: 'cloudflare', image_model: '@cf/black-forest-labs/flux-1-schnell' });
+    expect(JSON.stringify(r.body)).not.toContain('token-de-teste');
+    // Outro token (substituir): continua ativa e escolhida.
+    const again = await send(deps, { action: 'setKey', provider: 'cloudflare', key: KEY_CF.replace('CFTK', 'NOVO') });
+    expect(again.body.view?.settings).toMatchObject({ image_provider: 'cloudflare' });
+    expect(again.body.view?.settings.keys.cloudflare.last4).toBe('NOVO');
+    // Desativar volta ao Gemini.
+    const off = await send(deps, { action: 'setEnabled', provider: 'cloudflare', enabled: false });
+    expect(off.body.view?.settings).toMatchObject({ image_provider: 'google' });
+  });
+
+  it('servidor anterior sem a Cloudflare: o painel mostra-a «sem chave» em vez de falhar', async () => {
+    const deps = createLocalAiAdmin();
+    const base = (await send(deps, { action: 'get' })).body.view;
+    if (!base) throw new Error('vista');
+    const older = Object.fromEntries(Object.entries(base.settings.keys).filter(([p]) => p !== 'cloudflare'));
+    const legacy: AdminDeps = { ...deps, get: async () => ({ ...base, settings: { ...base.settings, keys: older } }) };
+    const r = await send(legacy, { action: 'get' });
+    expect(r.status).toBe(200);
+    expect(r.body.view?.settings.keys.cloudflare).toMatchObject({ configured: false, status: 'none', enabled: false });
+  });
+});
