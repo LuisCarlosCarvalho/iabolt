@@ -65,7 +65,8 @@ Não há migrações pendentes.
 ## Limitações e problemas conhecidos
 
 - **IA (08/10):**
-  - a causa do HTTP 400 do Gemini foi comprovada e corrigida (ver «Atualização de 08/10/2026»); falta uma tentativa real com proposta válida;
+  - HTTP 400 do Gemini corrigido e validado em produção a 08/10 (propostas reais concluídas e aplicadas);
+  - a geração de imagens com a chave gratuita da Google não está disponível (429, plano gratuito sem imagens);
   - a edição usa `google / gemini-3.8-flash` (escolha automática depois de trocar a chave);
   - a chave Anthropic consta como «válida», mas foi recusada em execução (401) e está inativa; tem de ser substituída antes de a ativar.
 - **Por implementar:**
@@ -168,8 +169,15 @@ npm run test:e2e:server
 - Regressão em `tests/unit/aiProviders.test.ts`: o esquema e o corpo do Gemini sem `maxItems`/`minItems`, `additionalProperties` mantido, OpenAI com os limites e o servidor a recusar operações a mais.
 - O diagnóstico continua a sondar o esquema original com `maxItems`/`minItems`, para servir de verificação ao vivo: deve dar «Causa encontrada … sem isso, o pedido real do assistente foi aceite».
 
-**Falta**
-- Uma tentativa real no assistente devolver uma proposta válida (o fecho deste problema).
+**Validado em produção (08/10, `ai-propose` v12, `gemini-3.8-flash`)**
+- 09:25:11 UTC: proposta concluída (com uma imagem a gerar).
+- 09:26:09 UTC: proposta concluída e aplicada no projeto Carla Santos (texto do título), com «Desfazer».
+- **O problema do HTTP 400 está fechado.**
+
+**Observado no mesmo teste (não são erros da aplicação)**
+- Gerar imagem com `gemini-3.1-flash-image` deu HTTP 429 «limit: 0 requests per day on Free Tier»: a chave gratuita não inclui geração de imagens. Precisa de chave com faturação, ou de desligar as imagens (o assistente propõe então escolher uma existente).
+- «O documento mudou desde esta proposta»: uma proposta pendente no painel fica bloqueada depois de outra alteração (aqui, pela janela rápida). É proteção intencional.
+- Custo registado do 2.º pedido: 0,049 USD confirmados mais 0,179 USD de uma tentativa sem resposta clara, contada pelo máximo (contabilidade prudente). Cada pedido envia cerca de 32 mil tokens de contexto.
 
 ## Atualização de 05/10/2026 (tarde, 2) · Gemini HTTP 400: diagnóstico progressivo publicado
 
