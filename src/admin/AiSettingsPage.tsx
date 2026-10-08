@@ -552,7 +552,7 @@ function GeminiDiagnosis({ busy, onRun }: { busy: string | null; onRun: (label: 
     <details className="ai-diagnosis" data-testid="ai-diagnosis">
       <summary>Diagnóstico do pedido (pago, até {DIAG_MAX_USD.toLocaleString('pt-PT')} USD)</summary>
       <p className="hint">
-        Envia ao Gemini (modelo de edição mais barato) até 11 pedidos, do mais simples ao pedido real do assistente (com um projeto anónimo), e pára no primeiro recusado. Os pedidos aceites
+        Envia ao Gemini (modelo de edição mais barato) até 14 pedidos, do mais simples ao pedido real do assistente (com um projeto anónimo), e pára no primeiro recusado. Os pedidos aceites
         consomem tokens; o custo total nunca passa de {DIAG_MAX_USD.toLocaleString('pt-PT')} USD.
       </p>
       <label className="ai-toggle">
@@ -575,7 +575,11 @@ function GeminiDiagnosis({ busy, onRun }: { busy: string | null; onRun: (label: 
         <div className="ai-diagnosis-report" data-testid="ai-diagnosis-report">
           <p>
             <strong>
-              {report.firstRejected
+              {report.culprit && report.fixValidated
+                ? `Causa encontrada: o Gemini recusa «${report.culprit}»; sem isso, o pedido real do assistente foi aceite.`
+                : report.culprit
+                  ? `Causa provável: o Gemini recusa «${report.culprit}» (o pedido real sem isso não chegou a ser confirmado).`
+                  : report.firstRejected
                 ? `Primeiro pedido recusado: ${report.steps.find((x) => x.id === report.firstRejected)?.label ?? report.firstRejected}`
                 : report.stoppedForBudget
                   ? 'Parado pelo teto de custo.'

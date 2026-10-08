@@ -22,6 +22,20 @@ export interface DiagStep {
   id: string;
   label: string;
   body: Record<string, unknown>;
+  /** Degrau de sondagem: as palavras do esquema que acrescenta (retiráveis se forem recusadas). */
+  probe?: string[];
+}
+
+/** Retira palavras do esquema em toda a profundidade (nunca nomes de propriedades). */
+export function stripKeywords(v: unknown, keys: readonly string[], inProperties = false): unknown {
+  if (Array.isArray(v)) return v.map((x) => stripKeywords(x, keys));
+  if (!v || typeof v !== 'object') return v;
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(v)) {
+    if (!inProperties && keys.includes(k)) continue;
+    out[k] = stripKeywords(x, keys, k === 'properties' && !inProperties);
+  }
+  return out;
 }
 
 export interface DiagStepResult {
@@ -94,9 +108,9 @@ export function anonymizedUserMessage(): string {
 export function geminiLadder(model: string): DiagStep[] {
   const steps: DiagStep[] = [];
   let body: Record<string, unknown> = { model, input: 'Responde apenas: ok', generation_config: { max_output_tokens: SMALL_OUTPUT } };
-  const add = (id: string, label: string, change: (b: Record<string, unknown>) => Record<string, unknown>) => {
+  const add = (id: string, label: string, change: (b: Record<string, unknown>) => Record<string, unknown>, probe?: string[]) => {
     body = change(clone(body));
-    steps.push({ id, label, body: clone(body) });
+    steps.push({ id, label, body: clone(body), ...(probe ? { probe } : {}) });
   };
   add('1-minimo', 'Geração mínima (model, input, max_output_tokens)', (b) => b);
   add('2-store', '+ store: false', (b) => ({ ...b, store: false }));
@@ -105,7 +119,16 @@ export function geminiLadder(model: string): DiagStep[] {
   add('4-ferramenta', '+ ferramenta mínima (um campo de texto), sem tool_choice', (b) => ({ ...b, tools: [minimalTool] }));
   add('5-tool-choice', '+ generation_config.tool_choice: "any"', (b) => ({ ...b, generation_config: { ...rec(b.generation_config), tool_choice: 'any' } }));
   const withParams = (parameters: Record<string, unknown>) => (b: Record<string, unknown>) => ({ ...b, tools: [{ ...minimalTool, parameters }] });
-  add('6-uma-operacao', 'Esquema real com uma só operação (setText, sem anyOf)', withParams(schemaWithItems((br) => br.slice(0, 1))));
+  // Degrau 6 em sondagens: o esquema real com uma só operação, acrescentando UMA palavra de cada vez.
+  const one = schemaWithItems((br) => br.slice(0, 1));
+  const only = (keys: string[]) => {
+    const r = stripKeywords(one, keys);
+    return r && typeof r === 'object' && !Array.isArray(r) ? (r as Record<string, unknown>) : {};
+  };
+  add('6a-estrutura', 'Esquema real com uma operação: só estrutura (objetos, listas, required)', withParams(only(['enum', 'maxItems', 'minItems', 'additionalProperties'])));
+  add('6b-enum', '+ enum', withParams(only(['maxItems', 'minItems', 'additionalProperties'])), ['enum']);
+  add('6c-maxitems', '+ maxItems / minItems', withParams(only(['additionalProperties'])), ['maxItems', 'minItems']);
+  add('6d-additional', '+ additionalProperties: false (esquema real com uma operação)', withParams(one), ['additionalProperties']);
   add('7-sem-aninhado', 'Esquema real: operações sem anyOf aninhado (anyOf de topo)', withParams(schemaWithItems((br) => br.filter((x) => !hasNestedAnyOf(x)))));
   add('8-esquema-completo', 'Esquema real completo (com anyOf aninhado em «image»)', withParams(geminiToolSchema()));
   const thinking = geminiThinkingLevel(model);
@@ -142,9 +165,13 @@ export async function runGeminiLadder(opts: {
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const maxUsd = Math.min(opts.maxUsd ?? DIAG_MAX_USD, DIAG_MAX_USD);
   const endpoint = `${opts.baseUrl ?? 'https://generativelanguage.googleapis.com'}/v1beta/interactions`;
-  const report: DiagReport = { model: opts.model, endpoint: '/v1beta/interactions', steps: [], firstRejected: null, stoppedForBudget: false, costUsd: 0, maxUsd };
-  for (const step of geminiLadder(opts.model)) {
-    const base = { id: step.id, label: step.label, inputTokens: 0, outputTokens: 0, costUsd: 0 };
+  const report: DiagReport = { model: opts.model, endpoint: '/v1beta/interactions', steps: [], firstRejected: null, culprit: null, fixValidated: false, stoppedForBudget: false, costUsd: 0, maxUsd };
+  /** Palavras recusadas numa sondagem: retiradas dos degraus seguintes, para validar a correção até ao pedido real. */
+  let strip: string[] = [];
+  for (const original of geminiLadder(opts.model)) {
+    const stripped = strip.length ? stripKeywords(original.body, strip) : original.body;
+    const step = { ...original, body: stripped && typeof stripped === 'object' && !Array.isArray(stripped) ? (stripped as Record<string, unknown>) : original.body };
+    const base = { id: step.id, label: strip.length ? `${step.label} [sem ${strip.join(', ')}]` : step.label, inputTokens: 0, outputTokens: 0, costUsd: 0 };
     const worst = worstCaseUsd(step.body, opts.prices);
     if (report.costUsd + worst > maxUsd) {
       report.steps.push({ ...base, http: null, accepted: false, detail: `Não enviado: o pior caso (${worst.toFixed(4)} USD) ultrapassaria o teto de ${maxUsd} USD.` });
@@ -187,7 +214,13 @@ export async function runGeminiLadder(opts: {
     if (!res.ok) {
       const detail = json === null ? '(resposta sem JSON)' : providerErrorDiagnostic(JSON.stringify(json), 1500);
       report.steps.push({ ...base, http: res.status, accepted: false, detail: TEMPORARY.has(res.status) ? `Interrompido: falha temporária do fornecedor${again}. ${detail}` : detail });
-      if (res.status === 400) report.firstRejected = step.id;
+      if (res.status === 400 && report.firstRejected === null) report.firstRejected = step.id;
+      // Sondagem recusada: a palavra que acrescentou é a causa; continua sem ela até ao pedido real.
+      if (res.status === 400 && step.probe && report.culprit === null) {
+        report.culprit = step.probe.join(', ');
+        strip = step.probe;
+        continue;
+      }
       break;
     }
     const it = rec(rec(json).interaction ?? json);
@@ -198,6 +231,8 @@ export async function runGeminiLadder(opts: {
     const kinds = steps.map((s) => String(rec(s).type ?? '?')).join(', ');
     report.steps.push({ ...base, http: res.status, accepted: true, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: cost, detail: `aceite${again} · estado ${String(it.status ?? '?')} · passos: ${kinds || 'nenhum'}${known ? '' : ' · consumo desconhecido (contado o pior caso)'}` });
   }
+  const last = report.steps[report.steps.length - 1];
+  report.fixValidated = report.culprit !== null && last?.id === '11-pedido-real' && last.accepted;
   report.costUsd = Math.round(report.costUsd * 1e6) / 1e6;
   return report;
 }

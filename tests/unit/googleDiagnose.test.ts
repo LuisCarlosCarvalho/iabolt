@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DIAG_MAX_USD, geminiLadder, runGeminiLadder, worstCaseUsd } from '../../supabase/functions/_shared/ai/googleDiagnose.ts';
+import { DIAG_MAX_USD, geminiLadder, runGeminiLadder, stripKeywords, worstCaseUsd } from '../../supabase/functions/_shared/ai/googleDiagnose.ts';
 import { geminiToolSchema, googleRequestBody } from '../../supabase/functions/_shared/ai/google.ts';
 import { SYSTEM_PROMPT } from '../../supabase/functions/_shared/ai/prompt.ts';
 
@@ -22,31 +22,66 @@ function fake(replies: Array<{ status: number; body: unknown }>) {
 describe('diagnóstico progressivo do Gemini', () => {
   it('degraus: do mínimo ao pedido real, um elemento de cada vez; o último só muda o input face ao anterior', () => {
     const lite = geminiLadder('gemini-3.5-flash-lite');
-    expect(lite.map((s) => s.id)).toEqual(['1-minimo', '2-store', '3-sistema', '4-ferramenta', '5-tool-choice', '6-uma-operacao', '7-sem-aninhado', '8-esquema-completo', '10-saida', '11-pedido-real']);
+    const ids = lite.map((s) => s.id);
+    expect(ids).toEqual(['1-minimo', '2-store', '3-sistema', '4-ferramenta', '5-tool-choice', '6a-estrutura', '6b-enum', '6c-maxitems', '6d-additional', '7-sem-aninhado', '8-esquema-completo', '10-saida', '11-pedido-real']);
     // O 3.8 Flash recebe thinking_level: tem um degrau próprio.
     expect(geminiLadder('gemini-3.8-flash').map((s) => s.id)).toContain('9-thinking');
+    const at = (id: string) => lite.find((s) => s.id === id);
     const keys = lite.map((s) => Object.keys(s.body).sort().join(','));
     expect(keys[0]).toBe('generation_config,input,model');
     expect(keys[1]).toBe('generation_config,input,model,store');
     expect(keys[2]).toBe('generation_config,input,model,store,system_instruction');
     expect(keys[3]).toBe('generation_config,input,model,store,system_instruction,tools');
-    expect(lite[3]?.body.generation_config).toEqual({ max_output_tokens: 64 });
-    expect(lite[4]?.body.generation_config).toEqual({ max_output_tokens: 64, tool_choice: 'any' });
-    const params = (i: number) => {
-      const tools = lite[i]?.body.tools;
+    expect(at('4-ferramenta')?.body.generation_config).toEqual({ max_output_tokens: 64 });
+    expect(at('5-tool-choice')?.body.generation_config).toEqual({ max_output_tokens: 64, tool_choice: 'any' });
+    const params = (id: string) => {
+      const tools = at(id)?.body.tools;
       const first: unknown = Array.isArray(tools) ? tools[0] : undefined;
       return JSON.stringify(first && typeof first === 'object' ? Reflect.get(first, 'parameters') : undefined);
     };
-    expect(params(5)).not.toContain('"anyOf"');
-    expect(params(6)).toContain('"anyOf"');
-    expect(params(7)).toBe(JSON.stringify(geminiToolSchema()));
-    expect(lite[8]?.body.generation_config).toEqual({ max_output_tokens: 1500, tool_choice: 'any' });
+    // Sondagens: cada uma acrescenta UMA palavra ao esquema real com uma operação.
+    expect(params('6a-estrutura')).not.toMatch(/"enum"|"maxItems"|"minItems"|"additionalProperties"/);
+    expect(params('6b-enum')).toContain('"enum"');
+    expect(params('6b-enum')).not.toMatch(/"maxItems"|"additionalProperties"/);
+    expect(params('6c-maxitems')).toContain('"maxItems"');
+    expect(params('6c-maxitems')).not.toContain('"additionalProperties"');
+    expect(params('6d-additional')).toContain('"additionalProperties":false');
+    expect(at('6d-additional')?.probe).toEqual(['additionalProperties']);
+    expect(params('6d-additional')).not.toContain('"anyOf"');
+    expect(params('7-sem-aninhado')).toContain('"anyOf"');
+    expect(params('8-esquema-completo')).toBe(JSON.stringify(geminiToolSchema()));
+    expect(at('10-saida')?.body.generation_config).toEqual({ max_output_tokens: 1500, tool_choice: 'any' });
     // Último degrau = googleRequestBody; face ao anterior só o input muda.
-    const real = lite[9]?.body;
+    const real = at('11-pedido-real')?.body;
     const ref = googleRequestBody('gemini-3.5-flash-lite', SYSTEM_PROMPT, String(real?.input), 1500);
     expect(real).toEqual(ref);
-    expect({ ...lite[8]?.body, input: real?.input }).toEqual(real);
+    expect({ ...at('10-saida')?.body, input: real?.input }).toEqual(real);
     expect(String(real?.input)).toContain('<pedido>Pode fazer uma mudança no website e colocar fotos relacionadas com o assunto?</pedido>');
+  });
+
+  it('sondagem recusada (caso de 08/10): identifica a palavra, retira-a dos degraus seguintes e valida o pedido real sem ela', async () => {
+    const sent: string[] = [];
+    const reject = { status: 400, body: { error: { message: 'Request contains an invalid argument.', code: 'invalid_request' } } };
+    const ok = { status: 200, body: { status: 'requires_action', steps: [{ type: 'function_call' }], usage: { total_input_tokens: 5, total_output_tokens: 1 } } };
+    // Simula a regra: o fornecedor recusa qualquer corpo com additionalProperties.
+    const fetch = async (_url: string, init: { method: string; headers: Record<string, string>; body?: string; signal: AbortSignal }) => {
+      const body = init.body ?? '';
+      sent.push(body);
+      const r = body.includes('"additionalProperties"') ? reject : ok;
+      return { ok: r.status === 200, status: r.status, json: async () => r.body };
+    };
+    const r = await runGeminiLadder({ apiKey: 'k', model: 'gemini-3.5-flash-lite', fetch, prices: FLASH_LITE });
+    expect(r.firstRejected).toBe('6d-additional');
+    expect(r.culprit).toBe('additionalProperties');
+    expect(r.fixValidated).toBe(true);
+    expect(r.steps.at(-1)?.id).toBe('11-pedido-real');
+    expect(r.steps.at(-1)?.label).toContain('[sem additionalProperties]');
+    // Depois da sondagem, nenhum degrau voltou a enviar a palavra recusada.
+    const after = sent.slice(sent.findIndex((b) => b.includes('"additionalProperties"')) + 1);
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.every((b) => !b.includes('"additionalProperties"'))).toBe(true);
+    // Nomes de propriedades nunca são retirados (só palavras do esquema).
+    expect(stripKeywords({ type: 'object', properties: { enum: { type: 'string', enum: ['a'] } } }, ['enum'])).toEqual({ type: 'object', properties: { enum: { type: 'string' } } });
   });
 
   it('falha temporária (503) repete até 2 vezes e continua; se persistir, fica «Interrompido», não «recusado»', async () => {

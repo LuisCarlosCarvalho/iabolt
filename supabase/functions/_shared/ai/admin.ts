@@ -156,6 +156,10 @@ export const AdminDiagnosis = z.object({
     }),
   ),
   firstRejected: z.string().nullable(),
+  /** Palavra(s) do esquema recusada(s) num degrau de sondagem (ex.: «additionalProperties»). */
+  culprit: z.string().nullable().optional(),
+  /** Sem a palavra recusada, o pedido real (último degrau) foi aceite pelo fornecedor. */
+  fixValidated: z.boolean().optional(),
   stoppedForBudget: z.boolean(),
   costUsd: z.number(),
   maxUsd: z.number(),
