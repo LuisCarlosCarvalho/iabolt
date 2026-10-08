@@ -358,7 +358,9 @@ Os custos, preços, reservas, orçamento e o consumo por pedido ficam visíveis 
 **Credencial**
 - É o Account ID mais um API Token com a permissão «Workers AI».
 - O painel junta os dois como `ACCOUNT_ID:TOKEN` antes de enviar; o cofre guarda-os como uma chave e o token nunca volta ao browser.
-- O teste sem custo faz `GET /accounts/{id}/ai/models/search?per_page=1`, que confirma o token e o Account ID.
+- O teste sem custo (botão «Testar ligação» e ao guardar) tem dois passos:
+  1. `GET /user/tokens/verify` (o comando que a Cloudflare indica ao criar o token) e, para tokens de conta, `GET /accounts/{id}/tokens/verify`. O token tem de estar `active`.
+  2. `GET /accounts/{id}/ai/models/search?per_page=1`, que confirma o Account ID e a permissão «Workers AI».
 
 **Escolha automática**
 - O FLUX tem `preference 1` nas imagens (o Gemini Image tem 10).

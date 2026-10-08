@@ -65,23 +65,43 @@ describe('[simulado] Cloudflare Workers AI', () => {
     expect(JSON.stringify(e1)).not.toContain(TOKEN);
   });
 
-  it('teste sem custo: GET à lista de modelos da conta; token recusado e Account ID errado são definitivos', async () => {
-    const ok = fake([{ status: 200, body: { success: true, result: [{ name: FLUX }] } }]);
+  it('teste sem custo, passo 1: o token (verify de utilizador e, se for de conta, o da conta) tem de estar ativo', async () => {
+    const active = { status: 200, body: { success: true, result: { id: 'abc', status: 'active' }, errors: [] } };
+    const models = { status: 200, body: { success: true, result: [{ name: FLUX }] } };
+    const ok = fake([active, models]);
     expect(await cloudflareCheck({ apiKey: KEY, model: FLUX, fetch: ok.fetch })).toEqual({ ok: true, formatChecked: false });
-    expect(ok.sent[0]).toMatchObject({ method: 'GET', url: `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/ai/models/search?per_page=1` });
-    expect(ok.sent[0]?.body).toBeUndefined();
-    // Resposta real observada sem credencial válida (08/10): HTTP 400, código 9106.
-    const token = fake([{ status: 400, body: { success: false, errors: [{ code: 9106, message: 'Authentication failed (status: 400)' }], result: null } }]);
-    expect(await cloudflareCheck({ apiKey: KEY, model: FLUX, fetch: token.fetch })).toMatchObject({ ok: false, definitive: true, reason: expect.stringContaining('recusou o token') });
-    const account = fake([{ status: 404, body: { success: false, errors: [{ code: 7003, message: 'Could not route to /accounts/x' }] } }]);
-    expect(await cloudflareCheck({ apiKey: KEY, model: FLUX, fetch: account.fetch })).toMatchObject({ ok: false, definitive: true, reason: 'O Account ID não foi encontrado para este token.' });
-    const busy = fake([{ status: 503, body: null }]);
-    expect(await cloudflareCheck({ apiKey: KEY, model: FLUX, fetch: busy.fetch })).toMatchObject({ ok: false, definitive: false });
-    expect(await cloudflareCheck({ apiKey: TOKEN, model: FLUX, fetch: busy.fetch })).toMatchObject({ ok: false, definitive: true, reason: expect.stringContaining('Account ID') });
+    expect(ok.sent.map((s) => [s.method, s.url])).toEqual([
+      ['GET', 'https://api.cloudflare.com/client/v4/user/tokens/verify'],
+      ['GET', `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/ai/models/search?per_page=1`],
+    ]);
+    expect(ok.sent.every((s) => s.headers.authorization === `Bearer ${TOKEN}` && s.body === undefined)).toBe(true);
+    // Resposta real observada a 08/10 com um token inválido: HTTP 401, código 1000, nos dois verify.
+    const invalid = { status: 401, body: { success: false, errors: [{ code: 1000, message: 'Invalid API Token' }], messages: [], result: null } };
+    const bad = fake([invalid, invalid]);
+    expect(await cloudflareCheck({ apiKey: KEY, model: FLUX, fetch: bad.fetch })).toEqual({ ok: false, definitive: true, reason: 'O fornecedor recusou o token (1000: Invalid API Token).' });
+    expect(bad.sent[1]?.url).toBe(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/tokens/verify`);
+    // Token de conta: o verify de utilizador recusa, o da conta aceita.
+    const accountToken = fake([invalid, active, models]);
+    expect(await cloudflareCheck({ apiKey: KEY, model: FLUX, fetch: accountToken.fetch })).toEqual({ ok: true, formatChecked: false });
+    // Expirado ou desativado: definitivo, com a razão.
+    const expired = fake([{ status: 200, body: { success: true, result: { id: 'abc', status: 'expired' } } }]);
+    expect(await cloudflareCheck({ apiKey: KEY, model: FLUX, fetch: expired.fetch })).toMatchObject({ ok: false, definitive: true, reason: expect.stringContaining('expirou') });
+    // Fornecedor em baixo: não é definitivo (a chave não é marcada como recusada).
+    const down = fake([{ status: 503, body: null }, { status: 503, body: null }]);
+    expect(await cloudflareCheck({ apiKey: KEY, model: FLUX, fetch: down.fetch })).toMatchObject({ ok: false, definitive: false });
+    expect(await cloudflareCheck({ apiKey: TOKEN, model: FLUX, fetch: down.fetch })).toMatchObject({ ok: false, definitive: true, reason: expect.stringContaining('Account ID') });
+  });
+
+  it('teste sem custo, passo 2: Account ID errado ou sem a permissão «Workers AI» são definitivos', async () => {
+    const active = { status: 200, body: { success: true, result: { id: 'abc', status: 'active' } } };
+    const account = fake([active, { status: 404, body: { success: false, errors: [{ code: 7003, message: 'Could not route to /accounts/x' }] } }]);
+    expect(await cloudflareCheck({ apiKey: KEY, model: FLUX, fetch: account.fetch })).toEqual({ ok: false, definitive: true, reason: 'O token está ativo, mas o Account ID não foi encontrado para ele.' });
+    const perm = fake([active, { status: 403, body: { success: false, errors: [{ code: 10000, message: 'Authentication error' }] } }]);
+    expect(await cloudflareCheck({ apiKey: KEY, model: FLUX, fetch: perm.fetch })).toMatchObject({ ok: false, definitive: true, reason: expect.stringContaining('permissão «Workers AI»') });
   });
 
   it('registo: a Cloudflare gera imagens e testa a chave; nunca faz edição', async () => {
-    const { fetch } = fake([{ status: 200, body: { success: true, result: [] } }]);
+    const { fetch } = fake([{ status: 200, body: { success: true, result: { status: 'active' } } }, { status: 200, body: { success: true, result: [] } }]);
     expect(makeImageGenerator('cloudflare', { apiKey: KEY, model: FLUX, fetch })?.model).toBe(FLUX);
     expect(await checkProviderKey('cloudflare', { apiKey: KEY, model: FLUX, fetch, kind: 'image' })).toEqual({ ok: true, formatChecked: false });
     await expect(makeEditProvider('cloudflare', { apiKey: KEY, model: FLUX, fetch }).propose({ system: 's', user: 'u', maxOutputTokens: 10, timeoutMs: 10 })).rejects.toThrow('só gera imagens');
