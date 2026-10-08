@@ -214,6 +214,15 @@ test('[simulado] Cloudflare: Account ID + token; ao guardar fica ativa e as imag
   await page.getByTestId('ai-key-input-cloudflare').fill('token-de-teste-cloudflare-0000000000CFTK');
   await page.getByTestId('ai-key-save-cloudflare').click();
   await expect(page.getByTestId('ai-key-status-cloudflare')).toContainText('Chave configurada');
+  // A mensagem do resultado aparece no próprio cartão.
+  const result = page.getByTestId('ai-key-test-result-cloudflare');
+  await expect(result).toHaveAttribute('data-kind', 'ok');
+  await expect(result).toContainText('Teste com sucesso');
+  await expect(result).toBeInViewport();
+  // Testar ligação também mostra o resultado no cartão.
+  await page.getByTestId('ai-key-test-cloudflare').click();
+  await expect(result).toHaveAttribute('data-kind', 'ok');
+  await expect(result).toContainText('Teste com sucesso');
   // Sem passo manual: fica ativa e passa a gerar as imagens.
   await expect(toggle(page, 'cloudflare')).toBeChecked();
   await expect(page.getByTestId('ai-route-image')).toContainText('FLUX.1 schnell');
@@ -226,5 +235,11 @@ test('[simulado] Cloudflare: Account ID + token; ao guardar fica ativa e as imag
   await page.getByTestId('ai-key-save-cloudflare').click();
   await expect(page.getByTestId('ai-key-status-cloudflare')).toContainText('…NOVO');
   await expect(page.getByTestId('ai-route-image')).toContainText('FLUX.1 schnell');
+  // Token recusado: mensagem de erro no cartão; o anterior mantém-se.
+  await page.getByTestId('ai-key-input-cloudflare').fill('token-invalida-cloudflare-000000000000XXXX');
+  await page.getByTestId('ai-key-save-cloudflare').click();
+  await expect(result).toHaveAttribute('data-kind', 'error');
+  await expect(result).toContainText('Teste sem sucesso');
+  await expect(page.getByTestId('ai-key-status-cloudflare')).toContainText('…NOVO');
   expect(external).toEqual([]);
 });

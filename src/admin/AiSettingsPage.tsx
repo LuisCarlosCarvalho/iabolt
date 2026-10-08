@@ -396,6 +396,17 @@ export function AiSettingsPage() {
   );
 }
 
+/** Resultado de guardar ou testar uma chave, mostrado NO PRÓPRIO CARTÃO (sucesso ou não). */
+type CardNote = { kind: 'ok' | 'error'; text: string };
+
+function resultNote(r: AdminResult): CardNote | null {
+  const t = r.body.test;
+  if (t) return { kind: t.ok ? 'ok' : 'error', text: `${t.ok ? 'Teste com sucesso' : 'Teste sem sucesso'}: ${t.message} ${t.cost}` };
+  if (r.body.error) return { kind: 'error', text: r.body.error };
+  if (r.body.message) return { kind: 'ok', text: r.body.message };
+  return null;
+}
+
 /** Chave, teste e estado de UM fornecedor. */
 function ProviderCard({
   provider,
@@ -416,7 +427,7 @@ function ProviderCard({
   /** Cloudflare: o Account ID (não é secreto) vai junto com o token, como «ACCOUNT_ID:TOKEN». */
   const [accountId, setAccountId] = useState('');
   const cloudflare = provider === 'cloudflare';
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNote] = useState<CardNote | null>(null);
   const k = view.settings.keys[provider];
   const route = routing(view);
   const uses = [route.edit?.provider === provider ? `edição (${route.edit.label})` : null, route.image?.provider === provider ? `imagens (${route.image.label})` : null].filter(Boolean);
@@ -429,18 +440,18 @@ function ProviderCard({
     const token = draft.trim();
     const account = accountId.trim();
     if (cloudflare && !/^[0-9a-f]{32}$/i.test(account)) {
-      setNote('O Account ID tem 32 caracteres (letras a–f e números): copie-o da página inicial da conta Cloudflare.');
+      setNote({ kind: 'error', text: 'O Account ID tem 32 caracteres (letras a–f e números): copie-o da página inicial da conta Cloudflare.' });
       return;
     }
     const key = cloudflare ? `${account}:${token}` : token;
     if (token.length < 20 || /\s/.test(token)) {
-      setNote(cloudflare ? 'O token parece incompleto ou tem espaços: cole o token completo, tal como a Cloudflare o mostra.' : 'A chave parece incompleta ou tem espaços: cole a chave completa, tal como o fornecedor a mostra.');
+      setNote({ kind: 'error', text: cloudflare ? 'O token parece incompleto ou tem espaços: cole o token completo, tal como a Cloudflare o mostra.' : 'A chave parece incompleta ou tem espaços: cole a chave completa, tal como o fornecedor a mostra.' });
       return;
     }
     // O campo é limpo já: a chave não fica no estado da página depois de enviada.
     setDraft('');
     setNote(null);
-    void onRun(`key-${provider}`, { action: 'setKey', provider, key }, (r) => setNote(r.body.test ? `${r.body.test.message} ${r.body.test.cost}` : null));
+    void onRun(`key-${provider}`, { action: 'setKey', provider, key }, (r) => setNote(resultNote(r)));
   };
 
   return (
@@ -549,7 +560,10 @@ function ProviderCard({
           </Button>
           <Button
             disabled={busy !== null || !k.configured}
-            onClick={() => void onRun(`test-${provider}`, { action: 'test', provider }, (r) => setNote(r.body.test ? `${r.body.test.message} ${r.body.test.cost}` : null))}
+            onClick={() => {
+              setNote(null);
+              void onRun(`test-${provider}`, { action: 'test', provider }, (r) => setNote(resultNote(r)));
+            }}
             data-testid={`ai-key-test-${provider}`}
             title={TEST_COST_NOTE}
           >
@@ -559,10 +573,17 @@ function ProviderCard({
             <Trash2 aria-hidden="true" /> Remover
           </Button>
         </div>
-        {note && (
-          <p className="hint" data-testid={`ai-key-test-result-${provider}`}>
-            {note}
+        {busy === `key-${provider}` || busy === `test-${provider}` ? (
+          <p className="hint" role="status" data-testid={`ai-key-testing-${provider}`}>
+            A testar a ligação com {PROVIDER_LABEL[provider]}…
           </p>
+        ) : (
+          note && (
+            <div className={`notice ${note.kind === 'ok' ? 'notice-ok' : 'notice-error'} ai-key-note`} role={note.kind === 'ok' ? 'status' : 'alert'} data-testid={`ai-key-test-result-${provider}`} data-kind={note.kind}>
+              {note.kind === 'ok' ? <CheckCircle2 aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
+              <span>{note.text}</span>
+            </div>
+          )
         )}
       </form>
       {provider === 'google' && k.configured && <GeminiDiagnosis busy={busy} onRun={onRun} />}
