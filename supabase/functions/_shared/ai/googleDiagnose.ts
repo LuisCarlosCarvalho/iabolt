@@ -58,8 +58,8 @@ const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 const rec = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
 /** Esquema real com `operations.items` substituído (degraus intermédios). */
-function schemaWithItems(pick: (branches: unknown[]) => unknown[]): Record<string, unknown> {
-  const s = clone(geminiToolSchema());
+function schemaWithItems(pick: (branches: unknown[]) => unknown[], keep: readonly string[] = []): Record<string, unknown> {
+  const s = clone(geminiToolSchema({ keep }));
   const items = rec(rec(rec(s.properties).operations).items);
   const branches = Array.isArray(items.anyOf) ? items.anyOf : [];
   const chosen = pick(branches);
@@ -120,7 +120,9 @@ export function geminiLadder(model: string): DiagStep[] {
   add('5-tool-choice', '+ generation_config.tool_choice: "any"', (b) => ({ ...b, generation_config: { ...rec(b.generation_config), tool_choice: 'any' } }));
   const withParams = (parameters: Record<string, unknown>) => (b: Record<string, unknown>) => ({ ...b, tools: [{ ...minimalTool, parameters }] });
   // Degrau 6 em sondagens: o esquema real com uma só operação, acrescentando UMA palavra de cada vez.
-  const one = schemaWithItems((br) => br.slice(0, 1));
+  // Com maxItems/minItems (recusados pelo Gemini, 08/10): as sondagens continuam a reproduzir a
+  // recusa original, e os degraus seguintes confirmam que o pedido real, sem eles, é aceite.
+  const one = schemaWithItems((br) => br.slice(0, 1), ['maxItems', 'minItems']);
   const only = (keys: string[]) => {
     const r = stripKeywords(one, keys);
     return r && typeof r === 'object' && !Array.isArray(r) ? (r as Record<string, unknown>) : {};

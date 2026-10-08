@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { geminiToolSchema, googleCheck, googleImageGenerator, googleProvider, googleRequestBody } from '../../supabase/functions/_shared/ai/google.ts';
-import { AI_STYLE_PROPS } from '../../supabase/functions/_shared/ai/contract.ts';
+import { AI_CONTRACT_VERSION, AI_STYLE_PROPS, AiProposal, AiProposeRequest, checkProposalShape } from '../../supabase/functions/_shared/ai/contract.ts';
 import type { Reservation, Settlement } from '../../supabase/functions/_shared/ai/handler.ts';
 import { handleImage, type ImageDeps } from '../../supabase/functions/_shared/ai/imageHandler.ts';
 import { RuntimeSettings } from '../../supabase/functions/_shared/ai/limits.ts';
-import { openaiCheck, openaiImageGenerator, openaiProvider } from '../../supabase/functions/_shared/ai/openai.ts';
+import { openaiCheck, openaiImageGenerator, openaiProvider, openaiRequestBody } from '../../supabase/functions/_shared/ai/openai.ts';
 import { portableToolSchema } from '../../supabase/functions/_shared/ai/prompt.ts';
 import { ProviderError } from '../../supabase/functions/_shared/ai/provider.ts';
 import { makeEditProvider, makeImageGenerator, PROVIDER_IDS } from '../../supabase/functions/_shared/ai/registry.ts';
@@ -60,6 +60,35 @@ describe('esquema portável', () => {
     const body = googleRequestBody('gemini-3.5-flash-lite', 'sys', 'user', 1500);
     expect(JSON.stringify(body.tools)).toContain(JSON.stringify(schema));
     expect(JSON.stringify(portableToolSchema())).toContain('"const"');
+  });
+
+  it('regressão HTTP 400 (causa comprovada a 08/10): o Gemini recusa maxItems/minItems; o pedido não os leva e o limite de operações continua no servidor', () => {
+    // Evidência real (diagnóstico progressivo, gemini-3.5-flash-lite): esquema com estrutura + enum
+    // aceite; + maxItems/minItems → 400; sem eles, o pedido real do assistente aceite com function_call.
+    const portable = JSON.stringify(portableToolSchema());
+    expect(portable).toContain('"maxItems"');
+    const gemini = JSON.stringify(geminiToolSchema());
+    expect(gemini).not.toMatch(/"maxItems"|"minItems"/);
+    expect(JSON.stringify(googleRequestBody('gemini-3.8-flash', 'S', 'U', 1500))).not.toMatch(/"maxItems"|"minItems"/);
+    // additionalProperties foi aceite pelo Gemini: mantém-se (o modelo não inventa campos).
+    expect(gemini).toContain('"additionalProperties":false');
+    // Os outros fornecedores continuam a receber o esquema portável, com os limites.
+    expect(JSON.stringify(openaiRequestBody('gpt-6.1-sol', 'S', 'U', 1500).tools)).toContain('"maxItems"');
+    // O limite de operações não depende do esquema: o servidor recusa uma proposta com operações a mais.
+    const req = AiProposeRequest.parse({
+      contract: AI_CONTRACT_VERSION,
+      projectId: 'p',
+      documentVersion: 'v',
+      requestId: '00000000-0000-4000-8000-000000000002',
+      scope: { kind: 'page', pageId: 'pg' },
+      device: 'desktop',
+      instruction: 'x',
+      imageGeneration: false,
+      context: { pages: [{ id: 'pg', name: 'P', slug: 'p', current: true, nodes: [] }], variables: [] },
+    });
+    const ops = Array.from({ length: 11 }, (_, i) => ({ op: 'remove' as const, id: `n${i}` }));
+    expect(checkProposalShape(req, { summary: 's', operations: ops }, 10).join(' ')).toContain('Demasiadas operações (11; máximo 10)');
+    expect(AiProposal.safeParse({ summary: 's', operations: Array.from({ length: 201 }, (_, i) => ({ op: 'remove', id: `n${i}` })) }).success).toBe(false);
   });
 
   it('registo: só os três fornecedores implementados; a Anthropic não gera imagens', () => {

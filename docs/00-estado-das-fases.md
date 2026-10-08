@@ -1,15 +1,38 @@
 # Estado das fases
 
-| Fase | Estado |
-| --- | --- |
-| 0 · Arquitetura e prova técnica | **concluída**: `npm run check` exit 0, resultados em `docs/05` |
-| 1 · Primeira versão utilizável (fatia funcional completa) | **entregue e validada no Supabase real**: `npm run test:server` 9/9 e `npm run test:e2e:server` 6/6 (execução do utilizador, 28/09/2026). Ver `docs/06` |
-| 2 · Editor completo e biblioteca de templates persistida | **em curso**. Implementados e testados localmente: biblioteca da equipa (versões imutáveis), design system da interface com temas, barra de ferramentas no canvas, inserção pelo «+», arrasto no canvas e inspetor de estilos. Migração 3 aplicada pelo utilizador (a importação no site publicado passou a gravar). Testes reais novos no Supabase **por executar**. Ver `docs/10` |
-| 3 · Importação incremental (JSON Bolt/GrapesJS, Studio, Elementor, HTML/CSS, ZIP) | GrapesJS/Studio e Elementor **implementados e testados** com as amostras (localmente; no site publicado o utilizador importou com sucesso). HTML/CSS, ZIP e JSON Bolt pendentes. Ver `docs/08` |
-| 4 · IA integrada | **só plano** em `docs/09`, com pontos de revisão; nada implementado |
-| 5 · Exportação e publicação | por fazer (o deploy da própria aplicação na Vercel já existe; a publicação dos sites dos utilizadores não) |
+Atualizado a 08/10/2026. As percentagens são uma estimativa do âmbito entregue face ao plano, não uma medição. Total estimado: **~77%**.
+
+| Fase | % | Estado |
+| --- | --- | --- |
+| 0 · Arquitetura e prova técnica | 100% | **Concluída**: `npm run check` exit 0, resultados em `docs/05` |
+| 1 · Primeira versão utilizável (fatia funcional completa) | 100% | **Entregue e validada no Supabase real** (28/09 e de novo a 08/10). Ver `docs/06` |
+| 2 · Editor completo e biblioteca de templates persistida | ~88% | **Publicada e validada no Supabase real a 08/10**: biblioteca da equipa, barra de ferramentas, «+», arrasto, inspetor, várias páginas, estilos globais, Google Fonts e seleção sincronizada. Falta: classes e estados (`:hover`), vista de código e barra do editor em telemóvel. Ver `docs/10`, `docs/11`, `docs/12` |
+| 3 · Importação incremental | ~92% | GrapesJS/Studio, Elementor, HTML/CSS e ZIP **publicados**; o ZIP foi validado no Supabase real a 08/10. Falta o JSON Bolt. Ver `docs/08`, `docs/20` |
+| 4 · IA integrada | ~75% | **Implementada e publicada**: assistente v2, janela rápida, imagens, responsivo automático, configurações com vários fornecedores e escolha automática, diagnóstico. HTTP 400 do Gemini com **causa comprovada e corrigida a 08/10** (o Gemini recusa `maxItems`/`minItems` no esquema das funções); falta a validação por uma tentativa real. A chave Anthropic, inativa, foi recusada em execução (401). Ver `docs/18`, `docs/10` |
+| 5 · Exportação e publicação | ~5% | Por fazer: só existe a cópia de segurança. O deploy da aplicação na Vercel existe; a publicação dos sites dos utilizadores não |
 
 Ponto de continuidade (o que está feito, testes, pendências e como retomar): **`docs/10-continuidade.md`**.
+
+## Validação no Supabase real (08/10/2026, execução do utilizador)
+
+| Comando | Resultado |
+| --- | --- |
+| `npm run test:server` | **17/17 passaram**: `supabase.api.test.ts` 12/12 e `ai.financeiro.test.ts` 5/5 |
+| `npm run test:e2e:server`, executado 2 vezes | **11 passaram e 1 foi ignorado de propósito**, nas duas execuções |
+
+O teste ignorado é o piloto real da IA (`tests/e2e-server/ai-pilot.spec.ts`). Só corre com `BOLT_AI_PILOT=1` porque faz uma chamada paga; o «-» no relatório do Playwright quer dizer «ignorado», não «falhado».
+
+Ficaram validados no servidor real, além da Fase 1:
+- várias páginas;
+- estilos globais;
+- inspetor (fundo e ajuste móvel com referência permanente);
+- biblioteca de imagens depois de F5;
+- importação ZIP com Storage;
+- biblioteca de templates e registo de importações;
+- isolamento entre contas, incluindo as imagens;
+- conflito entre sessões;
+- falha de rede ao guardar;
+- utilizador comum sem acesso a consumos, preços, configuração e chaves.
 
 ## Fase 1 · fatia funcional
 

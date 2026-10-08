@@ -29,26 +29,37 @@ const THINKING: Readonly<Record<string, string>> = { 'gemini-3.8-flash': 'low' }
 /** `thinking_level` enviado a um modelo (undefined = o campo não é enviado). */
 export const geminiThinkingLevel = (model: string): string | undefined => THINKING[model];
 
-/** Palavras do JSON Schema que o Gemini não aceita no esquema das funções (documentação oficial). */
-const UNSUPPORTED = new Set(['pattern', 'minLength', 'maxLength', '$schema']);
+/**
+ * Palavras do JSON Schema que não vão no esquema das funções do Gemini (Interactions API).
+ * `maxItems`/`minItems`: COMPROVADO por chamadas reais a 08/10/2026 (diagnóstico progressivo,
+ * gemini-3.5-flash-lite). O esquema real com uma operação foi aceite com estrutura e `enum` e
+ * recusado (HTTP 400 «Request contains an invalid argument.», sem detalhes) ao acrescentar
+ * `maxItems`/`minItems`. Sem eles, o esquema completo e o pedido real do assistente foram aceites,
+ * com chamada da função. `additionalProperties` foi aceite. As restantes ficam de fora por não
+ * constarem do subconjunto documentado.
+ */
+const UNSUPPORTED = new Set(['pattern', 'minLength', 'maxLength', 'maxItems', 'minItems', '$schema']);
 
 /**
  * Esquema da ferramenta no subconjunto de JSON Schema que o Gemini aceita. Com o esquema completo a
- * Google respondia 400 «Request contains an invalid argument» (pedido real de 05/10/2026):
+ * Google respondia 400 «Request contains an invalid argument» (pedidos reais de 05 a 08/10/2026):
  *  - `const` → `enum` com um só valor;
- *  - `pattern`, `minLength`, `maxLength` → omitidos;
+ *  - `pattern`, `minLength`, `maxLength`, `maxItems`, `minItems` → omitidos (o número máximo de
+ *    operações continua a ser verificado no servidor: `AiProposal` e `checkProposalShape`);
  *  - objeto aberto (só `additionalProperties`, ex.: `style`) → propriedades explícitas (as de
  *    `AI_STYLE_PROPS`): o Gemini exige `properties` não vazias num objeto.
  * Não enfraquece nada: o servidor volta a validar a proposta com o contrato completo (limites,
  * formatos, operações permitidas) antes de ela poder ser aplicada.
  */
-export function geminiToolSchema(): Record<string, unknown> {
+/** `keep`: palavras a NÃO retirar (só o diagnóstico, para reproduzir a recusa original). */
+export function geminiToolSchema(opts: { keep?: readonly string[] } = {}): Record<string, unknown> {
+  const keep = new Set(opts.keep ?? []);
   const walk = (v: unknown): unknown => {
     if (Array.isArray(v)) return v.map(walk);
     if (!v || typeof v !== 'object') return v;
     const out: Record<string, unknown> = {};
     for (const [k, x] of Object.entries(v)) {
-      if (UNSUPPORTED.has(k)) continue;
+      if (UNSUPPORTED.has(k) && !keep.has(k)) continue;
       if (k === 'const') out.enum = [x];
       else out[k] = walk(x);
     }

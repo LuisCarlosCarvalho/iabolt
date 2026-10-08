@@ -1,80 +1,88 @@
-# Continuidade · ponto de situação (28/09/2026)
+# Continuidade · ponto de situação (atualizado a 08/10/2026)
 
-Documento para retomar o trabalho. O estado por fase está em `docs/00`.
+Documento para retomar o trabalho. O estado por fase (com percentagens) está em `docs/00`. As secções «Atualização de …» abaixo são o histórico detalhado, da mais recente para a mais antiga.
 
 ## Onde está o trabalho
 
 - **Repositório:** https://github.com/LuisCarlosCarvalho/iabolt
-- **Ramo de trabalho:** `fase-1-primeira-versao`. `master` é avançado para o mesmo commit (sem merge nem force push) e é o ramo de produção na Vercel.
-- **Vercel:** projeto `umbulab/bolt2`, ligado ao GitHub: cada push publica sozinho. Produção: https://bolt2-lake.vercel.app/
+- **Ramo de trabalho:** `fase-1-primeira-versao`. `master` avança para o mesmo commit (sem merge nem force push) e é o ramo de produção na Vercel. Commits só de documentação ficam no ramo até à entrega seguinte.
+- **Vercel:** projeto `umbulab/bolt2`, ligado ao GitHub: cada push para `master` publica sozinho. Produção: https://bolt2-lake.vercel.app/
 - **Supabase:** projeto `quihhoszhtivzwhcvnsd` (as chaves ficam só em `.env.local`, fora do git, e nas variáveis da Vercel).
+- **Publicado a 08/10:** frontend `94202f0`; funções `ai-propose` v11, `ai-admin` v9 e `ai-image` v3; as 8 migrações aplicadas.
 
 ## Funcionalidades concluídas
 
 | Área | Estado |
 | --- | --- |
-| Dashboard, templates do produto, editor, gravação com revisões (local e Supabase), autenticação e login com vídeo | concluído (Fase 1) |
-| Importação GrapesJS/Studio e Elementor: relatório, prévia isolada, imagens com autorização, original guardado | concluído; testado localmente |
-| Biblioteca de templates da equipa: versões imutáveis, projeto derivado independente, retirar | concluído; testado localmente e em PGlite |
-| Design system da interface (Blue Bolt), temas Claro/Escuro/Automático, logótipo e favicon | concluído; testado localmente |
-| Barra de ferramentas no canvas, inserção pelo «+» (antes, dentro, depois), arrasto no canvas com o motor | concluído; testado localmente |
-| Inspetor de estilos: tipografia, layout (flex e grelha), dimensões, espaçamento, fundo, bordas, efeitos, posição, origem dos valores, repor, edição por dispositivo | concluído; testado localmente |
-| Assistente de IA | **só plano** (`docs/09`) |
+| Dashboard, templates do produto, editor, gravação com revisões (local e Supabase), autenticação e login com vídeo | concluído; validado no Supabase real |
+| Barra de ferramentas no canvas, inserção pelo «+», arrasto, seleção sincronizada com «Páginas e camadas» | concluído; publicado |
+| Inspetor de estilos completo, com edição por dispositivo e origem dos valores | concluído; validado no Supabase real (fundo e ajuste móvel) |
+| Várias páginas por projeto e estilos globais | concluído; validado no Supabase real |
+| Google Fonts no seletor de fonte (inspetor e estilos globais) | concluído; publicado |
+| Biblioteca de templates da equipa (versões imutáveis) e biblioteca de imagens | concluído; validado no Supabase real |
+| Importação GrapesJS/Studio, Elementor, HTML/CSS e ZIP | concluído; o ZIP foi validado no Supabase real |
+| Design system da interface (Blue Bolt), temas Claro/Escuro/Automático | concluído |
+| Assistente IA v2: elemento, secção, página ou site; imagens; antes/depois por ecrã; desfazer único; responsivo automático; janela «Editar com IA» | publicado; **sem fornecedor a funcionar a 08/10** |
+| Configurações de IA: chave por fornecedor, Ativo/Inativo, escolha automática, limites, orçamento, consumo, auditoria, diagnóstico do Gemini | publicado; o acesso de utilizadores comuns foi validado no Supabase real |
 
 ## Testes
 
-### Local (executados nesta sessão, no estado publicado)
+### Local
 
-Os números exatos da execução final estão no relatório de encerramento. Nas execuções anteriores de hoje:
+- `npm run check` (typecheck, lint, 234 testes unitários e de base de dados, build, `git diff --check`): exit 0 a 05/10.
+- `npx playwright test` (E2E local, modo local): 81 passaram e 3 foram ignorados de propósito, a 05/10. Os ignorados são as capturas visuais, que só correm com `BOLT_VISUAL=1`.
+- Ficheiros E2E em `tests/e2e/`:
+  - `ai-assistant`, `ai-full`, `ai-image-background`, `ai-settings`, `ai-shortcut`;
+  - `app`, `editor-direct`, `global-styles`, `inspector`, `layers-sync`, `left-panel`, `pages`;
+  - `import`, `import-static` (e as versões `.visual`);
+  - `poc`.
 
-- `npm run check` (typecheck, lint, 81 testes unitários e de base de dados, build, `git diff --check`): exit 0;
-- `npx playwright test` (E2E local, browser real, modo local): 31 passaram e 2 foram ignorados de propósito (as capturas visuais, que só correm com `BOLT_VISUAL=1`).
+### Supabase real (execução do utilizador a 08/10/2026)
 
-Ficheiros E2E:
-
-- `tests/e2e/app.spec.ts`
-- `tests/e2e/import.spec.ts`
-- `tests/e2e/editor-direct.spec.ts`
-- `tests/e2e/inspector.spec.ts`
-- `tests/e2e/poc.spec.ts`
-
-### Supabase real
-
-- **Executados pelo utilizador a 28/09/2026 (Fase 1):** `npm run test:server` 9/9 e `npm run test:e2e:server` 6/6.
-- **Acrescentados depois e por executar:**
-  - `test:server`: 2 casos da biblioteca de templates e do registo de importações (`tests/server/supabase.api.test.ts`);
-  - `test:e2e:server`: 1 caso do inspetor, que verifica que a imagem de fundo carregada fica gravada como referência permanente dentro de `url(...)` e que o ajuste no telemóvel fica no breakpoint (`tests/e2e-server/server.spec.ts`).
-- Estes testes **não** foram executados pelo agente: iniciam sessão no serviço remoto com as contas de teste, o que fica do lado do utilizador.
+- `npm run test:server`: **17/17** (`supabase.api.test.ts` 12/12 e `ai.financeiro.test.ts` 5/5).
+- `npm run test:e2e:server`, executado 2 vezes: **11 passaram e 1 foi ignorado de propósito**, nas duas.
+  - O ignorado é o piloto pago da IA (`ai-pilot.spec.ts`, só com `BOLT_AI_PILOT=1`).
+- Já não há testes reais por executar além desse piloto.
+- O agente não executa estes testes: iniciam sessão no serviço remoto com as contas de teste, o que fica do lado do utilizador.
 
 ## Migrações
 
-| Migração | Estado |
-| --- | --- |
-| `20260928120000_projetos_e_revisoes.sql` | aplicada (validada pelos testes reais 9/9 e 6/6) |
-| `20260928120100_storage_imagens.sql` | aplicada (idem) |
-| `20260928150000_biblioteca_templates.sql` | aplicada pelo utilizador. Evidência: a importação no site publicado deixou de dar «Could not find the function public.record_import» e gravou os projetos. Falta a validação pelos testes reais novos |
+Todas aplicadas no projeto `quihhoszhtivzwhcvnsd` (`supabase migration list` igual entre local e remoto a 05/10):
 
-Não há migrações pendentes além desta validação.
+| Migração | Conteúdo |
+| --- | --- |
+| `20260928120000_projetos_e_revisoes.sql` | projetos, revisões, RLS |
+| `20260928120100_storage_imagens.sql` | bucket privado de imagens |
+| `20260928150000_biblioteca_templates.sql` | biblioteca de templates e registo de importações |
+| `20260929120000_assistente_ia_consumo.sql` | consumo da IA (`ai_usage`), limites e reservas |
+| `20260930120000_configuracoes_ia.sql` | configurações de IA, chave no Vault, auditoria |
+| `20261001120000_ia_fornecedores.sql` | vários fornecedores e catálogo de modelos |
+| `20261002120000_ia_financeiro_so_admin.sql` | valores financeiros só para administradores |
+| `20261005120000_ia_fornecedores_ativos.sql` | Ativo/Inativo por fornecedor e escolha automática |
+
+Não há migrações pendentes.
 
 ## Limitações e problemas conhecidos
 
+- **IA (08/10):**
+  - a causa do HTTP 400 do Gemini foi comprovada e corrigida (ver «Atualização de 08/10/2026»); falta uma tentativa real com proposta válida;
+  - a edição usa `google / gemini-3.8-flash` (escolha automática depois de trocar a chave);
+  - a chave Anthropic consta como «válida», mas foi recusada em execução (401) e está inativa; tem de ser substituída antes de a ativar.
 - **Por implementar:**
-  - importação HTML/CSS, ZIP e JSON Bolt;
+  - exportação e publicação dos sites dos utilizadores (Fase 5);
   - classes e estados (`:hover`);
-  - editor de cores e fontes globais;
-  - várias páginas por projeto;
-  - vista de código e exportação;
-  - publicação dos sites dos utilizadores;
-  - IA.
-- **Editor em telemóvel:** a barra superior do editor é mais larga do que o ecrã. O problema já existia e não foi corrigido para não reorganizar o editor.
-- **Canvas:** na borda de 1 px à volta do canvas e nos cantos arredondados das miniaturas aparece o fundo da interface, que muda com o tema. O conteúdo dos sites fica igual (verificado ao pixel).
-- **Barra de ferramentas:** quando o elemento está no topo da vista, a barra fica por dentro e pode tapar parte dele. O rótulo do próprio GrapesJS continua a aparecer ao passar o rato.
+  - vista de código;
+  - importação JSON Bolt.
+- **Responsivo da IA:** os ajustes gravam-se nos breakpoints da plataforma (992 e 480 px). Em projetos importados com outros breakpoints (ex.: 1024 e 767), entre 481 e 767 px uma regra `#id` da base prevalece sobre o ajuste móvel importado.
+- **Projeto Carla Santos:** 43 imagens apontam para `daniel-machado.site`, um domínio que já não existe (NXDOMAIN); é preciso substituí-las.
+- **Editor em telemóvel:** a barra superior do editor é mais larga do que o ecrã.
+- **Canvas:** na borda de 1 px e nos cantos das miniaturas aparece o fundo da interface, que muda com o tema. O conteúdo dos sites fica igual.
+- **Barra de ferramentas:** com o elemento no topo da vista, a barra fica por dentro e pode tapar parte dele.
 - **Inspetor:**
-  - a origem «regra do site» é uma aproximação pela ordem das regras, não um cálculo completo de especificidade;
-  - valores definidos com abreviaturas (ex.: `padding`) são reconhecidos, mas editados por lado.
-- **Elementor:** uma «Largura» guardada num container «boxed» é ignorada, por interpretação do comportamento do Elementor (registado no relatório de cada importação).
-- **Aviso em modo dev:** o `postcss` gera avisos «module externalized» na consola do Vite; não afetam o funcionamento.
-- **Tamanho do bundle:** o principal tem cerca de 1,9 MB (aviso do Vite acima de 500 kB). A divisão do código fica por fazer.
+  - a origem «regra do site» é uma aproximação pela ordem das regras;
+  - abreviaturas (ex.: `padding`) são editadas por lado.
+- **Elementor:** a «Largura» de um container «boxed» é ignorada (registado no relatório de importação).
+- **Tamanho do bundle:** o principal tem cerca de 2 MB (aviso do Vite acima de 500 kB). A divisão do código fica por fazer.
 - **Supabase:** os registos públicos devem estar desligados («Allow new users to sign up»). Confirmar no painel.
 
 ## Ficheiros e documentos principais
@@ -84,7 +92,9 @@ Não há migrações pendentes além desta validação.
   - `docs/00`: estado das fases;
   - `docs/07`: Supabase;
   - `docs/08`: importação e biblioteca;
-  - `docs/09`: plano da IA e pontos de revisão.
+  - `docs/09`: plano da IA e pontos de revisão;
+  - `docs/18`: assistente IA v2;
+  - `docs/20`: importação de sites estáticos.
 - **Motor e editor:**
   - `src/engine/`: motor (tipos Bolt, operações, estilos, runtime, origem dos estilos);
   - `src/editor/`: editor (`EditorPage`, `CanvasToolbar`, `StyleInspector`, `PropertiesPanel`, `LayersPanel`, `ImageDialog`).
@@ -124,6 +134,42 @@ Testes contra o Supabase real (usam as contas de teste de `.env.local`):
 npm run test:server
 npm run test:e2e:server
 ```
+
+## Atualização de 08/10/2026 · Gemini HTTP 400: causa comprovada e corrigida
+
+**Causa (comprovada por chamadas reais)**
+- A Interactions API do Gemini recusa as palavras `maxItems` e `minItems` no esquema (`parameters`) das funções.
+- Responde HTTP 400 genérico, sem detalhes: `{"error":{"message":"Request contains an invalid argument.","code":"invalid_request"}}`.
+- A documentação de saída estruturada lista estas palavras como suportadas, mas nas funções da Interactions API são recusadas.
+
+**Evidência**
+- O diagnóstico progressivo (`ai-admin` v11, `gemini-3.5-flash-lite`, chave nova do utilizador) correu a 08/10 com custo de 0,007655 USD (estimado com a tabela de preços).
+- Degraus 1 a 5 aceites: geração mínima, `store`, instruções reais, ferramenta mínima e `tool_choice: "any"`.
+- Com o esquema real de uma operação:
+  - só estrutura: aceite;
+  - `+ enum`: aceite;
+  - **`+ maxItems/minItems`: HTTP 400**.
+- Sem `maxItems`/`minItems`, foram todos aceites, sempre com `function_call`:
+  - `+ additionalProperties: false`;
+  - o esquema com `anyOf` de topo;
+  - o esquema completo (com `anyOf` aninhado);
+  - `max_output_tokens` 1500;
+  - **o pedido real do assistente**, com input anonimizado.
+- Descartado pelas tentativas reais de 05 a 08/10:
+  - não é a chave (a chave nova falhava igual);
+  - não é o modelo (Flash-Lite e 3.8 Flash falhavam igual);
+  - não é o endpoint nem o `tool_choice`.
+- As hipóteses anteriores estavam erradas ou incompletas: `const`/`pattern`/`minLength`/`maxLength` a 05/10, e `additionalProperties` a 08/10, que é aceite.
+
+**Correção**
+- `geminiToolSchema()` (`supabase/functions/_shared/ai/google.ts`) deixa de enviar `maxItems`/`minItems` ao Gemini.
+- O limite de operações continua no servidor (`AiProposal`, máximo 200, e `checkProposalShape`, `max_operations`) e no editor.
+- Os outros fornecedores continuam a receber o esquema portável com os limites.
+- Regressão em `tests/unit/aiProviders.test.ts`: o esquema e o corpo do Gemini sem `maxItems`/`minItems`, `additionalProperties` mantido, OpenAI com os limites e o servidor a recusar operações a mais.
+- O diagnóstico continua a sondar o esquema original com `maxItems`/`minItems`, para servir de verificação ao vivo: deve dar «Causa encontrada … sem isso, o pedido real do assistente foi aceite».
+
+**Falta**
+- Uma tentativa real no assistente devolver uma proposta válida (o fecho deste problema).
 
 ## Atualização de 05/10/2026 (tarde, 2) · Gemini HTTP 400: diagnóstico progressivo publicado
 

@@ -340,3 +340,9 @@ Os custos, preços, reservas, orçamento e o consumo por pedido ficam visíveis 
 - Migração `20261005120000_ia_fornecedores_ativos.sql` (fazer primeiro um dry-run).
 - Funções `ai-admin` e `ai-propose`.
 - Frontend: push para `master`.
+
+## Gemini: HTTP 400 resolvido no adaptador (08/10/2026)
+
+- A Interactions API recusa `maxItems`/`minItems` nos `parameters` das funções. Isto foi comprovado com o diagnóstico progressivo; a evidência está em `docs/10`.
+- `geminiToolSchema()` retira-os. O limite de operações continua no servidor e no editor.
+- Painel: Configurações de IA → cartão Google → «Diagnóstico do pedido». É só para administradores, pago, com teto de 0,02 USD, e sonda o esquema palavra a palavra até ao pedido real.
