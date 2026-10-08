@@ -407,3 +407,16 @@ Separadores abertos com a versão anterior do painel precisam de F5 depois de a 
 - O painel é recriado a cada abertura e voltava a aplicá-los, reabrindo a proposta e a confirmação.
 - Agora o painel avisa quando os usou (`onConsumed`), e o editor só lhe passa os mais recentes (contadores que só crescem).
 - Regressão em `tests/e2e/ai-shortcut.spec.ts`. Confirmado que falha sem a correção.
+
+## Gemini 3.5 Flash-Lite na edição: plano gratuito (08/10/2026)
+
+- **Problema:** com a chave gratuita da Google, o Gemini 3.8 Flash permite 20 pedidos por dia (HTTP 429 «limit: 20 requests per day on Free Tier»). Também respondeu várias vezes acima do tempo limite.
+- **Escolha do utilizador:** manter o plano gratuito.
+- **Migração `20261008130000_ia_flash_lite_edicao.sql`:**
+  - o Flash-Lite recebe `preference 25` e passa à frente do 3.8 Flash (30);
+  - tem quota gratuita própria e é mais rápido;
+  - a migração corre `ai__route()`, por isso aplica-se logo;
+  - o Claude (10) e o GPT (20) continuam à frente, se forem ativados.
+- As imagens continuam na Cloudflare.
+- **Não feito: o recuo automático entre modelos quando um atinge o limite diário.** A reserva (`ai_reserve`) confirma que o modelo usado é o configurado, por isso mudar de modelo a meio de um pedido obriga a rever a reserva e o acerto. Fica proposto.
+- Teste: `tests/db/ai_flash_lite.test.ts`.

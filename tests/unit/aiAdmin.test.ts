@@ -186,7 +186,8 @@ describe('[simulado] ai-admin · vários fornecedores', () => {
 
     let v = go.body.view?.settings.version ?? 0;
     const sw = await send(deps, { action: 'update', expectedVersion: v, patch: { provider: 'google', model: 'gemini-3.8-flash', enabled: true } });
-    expect(sw.body.view?.settings).toMatchObject({ provider: 'google', model: 'gemini-3.8-flash', enabled: true });
+    // A escolha automática prevalece: na Google, o melhor modelo de edição é o Flash-Lite (08/10).
+    expect(sw.body.view?.settings).toMatchObject({ provider: 'google', model: 'gemini-3.5-flash-lite', enabled: true });
     // As três chaves continuam no cofre, intactas.
     expect(await deps.providerKey('anthropic')).toBe(KEY_A);
     expect(await deps.providerKey('openai')).toBe(KEY_OPENAI);
