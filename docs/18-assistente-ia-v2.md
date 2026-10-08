@@ -387,3 +387,23 @@ Separadores abertos com a versão anterior do painel precisam de F5 depois de a 
 - Base de dados: `ai_cloudflare.test.ts`.
 - E2E: `ai-settings.spec.ts`.
 - Todos com respostas simuladas. A primeira imagem real valida a integração.
+
+## Imagens no formato do espaço, identidade do site e bug da confirmação repetida (08/10/2026)
+
+**Formato da imagem pelo espaço**
+- `src/ai/imageSlot.ts` mede no canvas o espaço onde a imagem fica:
+  - num fundo, o próprio elemento;
+  - numa imagem, o contentor quando ela é o seu único conteúdo (ex.: o widget de imagem do Elementor no projeto Carla Santos, cerca de 546×700, que dá 3:4); senão, a própria imagem.
+- Essa proporção passa a ser a escolha por omissão («(espaço)» na lista).
+- A imagem gerada é recortada ao centro para essa proporção quando o fornecedor devolve outra. O FLUX.1 schnell da Cloudflare só gera quadrados; antes, o espaço vertical recebia um quadrado pequeno. O recorte mantém o formato do ficheiro (PNG continua PNG).
+
+**Identidade do site**
+- A regra 9 das instruções exige que o prompt da imagem, em inglês, siga o tema e o público dos textos, as cores das variáveis e um estilo consistente, sem assuntos alheios ao tema, texto ou marcas.
+- O `aspect` proposto segue a forma do espaço.
+- O texto é curto de propósito: o pior caso do diagnóstico do Gemini, que inclui as instruções em todos os degraus, está em 0,01993 USD, com o teto de 0,02. **Aumentar as instruções obriga a rever esse teto** (o teste `googleDiagnose` falha se passar).
+
+**Bug: «Gerar imagem?» reaparecia ao abrir o assistente**
+- O texto e a proposta passados pela janela rápida ficavam guardados no editor.
+- O painel é recriado a cada abertura e voltava a aplicá-los, reabrindo a proposta e a confirmação.
+- Agora o painel avisa quando os usou (`onConsumed`), e o editor só lhe passa os mais recentes (contadores que só crescem).
+- Regressão em `tests/e2e/ai-shortcut.spec.ts`. Confirmado que falha sem a correção.

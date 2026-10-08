@@ -397,3 +397,31 @@ test('[simulado] caso do print: sem elemento selecionado, o âmbito Página ou S
   expect(reqs[0]?.scope).toEqual({ kind: 'site' });
   expect(reqs[0]?.instruction).toBe(instruction);
 });
+
+test('[simulado] imagem gerada no formato do ESPAÇO onde fica (medido no canvas) e recortada para ele', async ({ page }) => {
+  await createNimbus(page, `IA formato ${Date.now()}`);
+  const img = frame(page).locator('img').first();
+  // Proporção do espaço da imagem no canvas (a imagem ou o seu contentor, se ela for o único conteúdo).
+  const box = await img.evaluate((el) => {
+    const own = el.getBoundingClientRect();
+    const parent = el.parentElement;
+    const p = parent && parent.children.length === 1 ? parent.getBoundingClientRect() : null;
+    const r = p && p.width * p.height > own.width * own.height * 1.2 ? p : own;
+    return { w: r.width, h: r.height };
+  });
+  const ratios: Record<string, number> = { '1:1': 1, '16:9': 16 / 9, '4:3': 4 / 3, '3:4': 3 / 4, '9:16': 9 / 16 };
+  const expected = Object.keys(ratios).reduce((a, b) => (Math.abs(Math.log((ratios[b] ?? 1) / (box.w / box.h))) < Math.abs(Math.log((ratios[a] ?? 1) / (box.w / box.h))) ? b : a), '1:1');
+  await img.click();
+  await page.getByTestId('ct-ai').click();
+  await page.getByTestId('ai-quick-more').click();
+  await ask(page, 'imagem: gerar um retrato de estúdio');
+  // O formato por omissão é o do espaço, assinalado na lista.
+  await expect(page.getByTestId('ai-generate-aspect')).toHaveValue(expected);
+  await expect(page.getByTestId('ai-generate-aspect').locator('option:checked')).toContainText('(espaço)');
+  await page.getByTestId('ai-generate').click();
+  await page.getByTestId('ai-generate-confirm').click();
+  // A imagem escolhida tem a proporção do espaço.
+  const thumb = page.getByTestId('ai-image-chosen').locator('img');
+  await expect(thumb).toBeVisible();
+  await expect.poll(() => thumb.evaluate((el) => (el instanceof HTMLImageElement ? el.naturalWidth / el.naturalHeight : 0))).toBeCloseTo(ratios[expected] ?? 1, 1);
+});

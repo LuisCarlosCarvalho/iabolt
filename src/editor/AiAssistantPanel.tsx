@@ -29,6 +29,7 @@ import {
   type ImageChoice,
 } from '../ai/apply';
 import { buildScopeContext, capabilitiesOf, planParts, resolveScope, type ContextPart, type ResolvedScope } from '../ai/context';
+import { cropToAspect, slotAspect } from '../ai/imageSlot';
 import { estimateRequestUsd, formatUsd } from '../ai/cost';
 import type { ImageGenerator } from '../ai/proposers';
 import type { AiHandoff } from '../ai/quickEdit';
@@ -174,6 +175,7 @@ export function AiAssistantPanel({
   focusRequest = 0,
   prefill,
   handoff,
+  onConsumed,
 }: {
   editor: Editor;
   projectId: string;
@@ -185,6 +187,12 @@ export function AiAssistantPanel({
   prefill?: { text: string; n: number };
   /** Proposta vinda da janela rápida (imagens): aparece já, sem novo pedido ao assistente. */
   handoff?: AiHandoff & { n: number };
+  /**
+   * O painel usou o texto ou a proposta passados pela janela rápida: o editor limpa-os. O painel é
+   * recriado sempre que a ferramenta abre; sem isto, voltava a aplicá-los a cada abertura (a
+   * confirmação «Gerar imagem?» reaparecia sempre, 08/10/2026).
+   */
+  onConsumed?: (what: 'prefill' | 'handoff', n: number) => void;
 }) {
   const { proposer, images, status, admin } = useAssistant();
   const { assets } = useServices();
@@ -203,6 +211,9 @@ export function AiAssistantPanel({
     setPrefilled(prefillN);
     setInstruction(prefillText);
   }
+  useEffect(() => {
+    if (prefilled > 0) onConsumed?.('prefill', prefilled);
+  }, [prefilled, onConsumed]);
   // O dispositivo do assistente acompanha o do editor, salvo escolha própria.
   // Responsivo automático: o pedido é sempre sobre a BASE (todos os ecrãs) e o assistente acrescenta
   // os ajustes de tablet e telemóvel quando são precisos (ou só esse ecrã, se o pedido o disser).
@@ -227,6 +238,9 @@ export function AiAssistantPanel({
       proposal: { requests: [req], responses: [handoff.response], ops: handoff.response.proposal.operations, summary: handoff.response.proposal.summary, scope: resolved, device: req.device, version: req.documentVersion, autoGenerate: handoff.autoGenerate },
     });
   }
+  useEffect(() => {
+    if (handedOff > 0) onConsumed?.('handoff', handedOff);
+  }, [handedOff, onConsumed]);
   const alive = useRef(true);
   /** Um pedido de cada vez: impede envios duplicados (duplo clique, Enter repetido). */
   const inFlight = useRef(false);
@@ -848,11 +862,13 @@ function ImageSlot({
   const [picking, setPicking] = useState(false);
   const [library, setLibrary] = useState<LibraryImage[] | null>(null);
   const [prompt, setPrompt] = useState(source.kind === 'generate' ? source.prompt : (source.hint ?? ''));
-  const [aspect, setAspect] = useState<(typeof IMAGE_ASPECTS)[number]>(source.kind === 'generate' ? source.aspect : '16:9');
+  const target = op.op === 'insertBlock' || op.op === 'insertSection' ? undefined : findInProject(editor, op.id)?.component;
+  // Formato do ESPAÇO onde a imagem fica (medido no canvas); na falta dele, o proposto pelo modelo.
+  const [measured] = useState(() => slotAspect(target, op.op === 'setBackgroundImage' ? 'background' : 'image'));
+  const [aspect, setAspect] = useState<(typeof IMAGE_ASPECTS)[number]>(measured ?? (source.kind === 'generate' ? source.aspect : '16:9'));
   const [confirming, setConfirming] = useState(autoConfirm && source.kind === 'generate' && images !== null);
   const [generating, setGenerating] = useState<AbortController | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const target = op.op === 'insertBlock' || op.op === 'insertSection' ? undefined : findInProject(editor, op.id)?.component;
   const what = op.op === 'setBackgroundImage' ? 'Imagem de fundo' : op.op === 'insertSection' ? 'Imagem da secção nova' : op.op === 'insertBlock' ? 'Imagem nova' : 'Imagem';
   const alt = target ? String(target.getAttributes().alt ?? '') : (item?.alt ?? '');
 
@@ -887,7 +903,9 @@ function ImageSlot({
     setError(null);
     try {
       const r = await images.generate({ requestId: crypto.randomUUID(), projectId, prompt: prompt.trim(), aspect }, ctrl.signal);
-      onChoose({ display: URL.createObjectURL(r.blob), pending: r.blob, origin: 'generated', costUsd: r.costUsd });
+      // Fornecedores que só geram quadrados: recorte central para o formato do espaço.
+      const blob = await cropToAspect(r.blob, aspect);
+      onChoose({ display: URL.createObjectURL(blob), pending: blob, origin: 'generated', costUsd: r.costUsd });
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -941,6 +959,7 @@ function ImageSlot({
               {IMAGE_ASPECTS.map((a) => (
                 <option key={a} value={a}>
                   {a}
+                  {a === measured ? ' (espaço)' : ''}
                 </option>
               ))}
             </select>

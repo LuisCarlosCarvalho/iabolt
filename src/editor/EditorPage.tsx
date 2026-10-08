@@ -156,6 +156,12 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
   const [quickAi, setQuickAi] = useState<Component | null>(null);
   const [aiPrefill, setAiPrefill] = useState<{ text: string; n: number }>({ text: '', n: 0 });
   const [aiHandoff, setAiHandoff] = useState<(AiHandoff & { n: number }) | undefined>(undefined);
+  /** O painel do assistente já usou o texto/proposta da janela rápida: não voltam a ser aplicados. */
+  // Os contadores só crescem; o painel recebe apenas o que ainda não usou.
+  const [aiUsed, setAiUsed] = useState({ prefill: 0, handoff: 0 });
+  const aiConsumed = useCallback((what: 'prefill' | 'handoff', n: number) => {
+    setAiUsed((u) => (u[what] >= n ? u : { ...u, [what]: n }));
+  }, []);
   const closeQuickAi = useCallback(() => setQuickAi(null), []);
   // Contentor do canvas (referencial da barra de ferramentas contextual).
   const [canvasWrap, setCanvasWrap] = useState<HTMLDivElement | null>(null);
@@ -403,7 +409,7 @@ function EditorWorkspace({ doc, summary, display, urls }: { doc: BoltDocument; s
           {editor && leftTool === 'layers' && <TickedPages editor={editor} />}
           {editor && leftTool === 'layers' && <TickedLayers editor={editor} />}
           {editor && leftTool === 'styles' && <TickedGlobalStyles editor={editor} />}
-          {editor && leftTool === 'ai' && <TickedAi editor={editor} projectId={doc.projectId} urls={urls} device={device} focusRequest={aiFocus} prefill={aiPrefill} {...(aiHandoff ? { handoff: aiHandoff } : {})} {...(summary.workspaceId ? { workspaceId: summary.workspaceId } : {})} />}
+          {editor && leftTool === 'ai' && <TickedAi editor={editor} projectId={doc.projectId} urls={urls} device={device} focusRequest={aiFocus} {...(aiPrefill.n > aiUsed.prefill ? { prefill: aiPrefill } : {})} onConsumed={aiConsumed} {...(aiHandoff && aiHandoff.n > aiUsed.handoff ? { handoff: aiHandoff } : {})} {...(summary.workspaceId ? { workspaceId: summary.workspaceId } : {})} />}
           {editor && leftTool === 'blocks' && <TickedBlocks editor={editor} onImageInserted={setImageTarget} target={insertTarget} onClearTarget={() => setInsertTarget(null)} />}
           {editor && leftTool === 'images' && (
             <TickedImages editor={editor} projectId={doc.projectId} urls={urls} {...(summary.workspaceId ? { workspaceId: summary.workspaceId } : {})} />

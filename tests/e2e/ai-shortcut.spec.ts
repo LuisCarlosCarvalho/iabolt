@@ -122,3 +122,45 @@ test('[simulado] janela rápida: «Alterar» aplica logo, um só «Desfazer», e
   expect(await page.evaluate(() => window.__boltAiSent ?? 0)).toBe(sent + 1);
   await expect(page.getByTestId('undo')).toBeDisabled();
 });
+
+test('[simulado] bug de 08/10: a proposta da janela rápida (com «Gerar imagem?») não reaparece ao reabrir o assistente', async ({ page }) => {
+  await createNimbus(page);
+  const img = frame(page).locator('img').first();
+  await img.click();
+  await page.getByTestId('ct-ai').click();
+  await page.getByTestId('ai-quick-input').fill('troca a imagem por um retrato de estúdio');
+  await page.getByTestId('ai-quick-apply').click();
+  // O painel abre com a proposta e a confirmação «Gerar imagem?» já aberta.
+  const confirm = page.getByRole('dialog', { name: 'Gerar imagem?' });
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  await expect(confirm).toBeHidden();
+  await page.getByTestId('ai-discard').click();
+  await expect(page.getByTestId('ai-image-slot')).toHaveCount(0);
+  // Fechar e reabrir o assistente várias vezes: nada reaparece.
+  for (let i = 0; i < 3; i += 1) {
+    await page.getByTestId('tool-layers').click();
+    await page.getByTestId('tool-ai').click();
+    await expect(page.getByTestId('ai-panel')).toBeVisible();
+    await expect(confirm).toHaveCount(0);
+    await expect(page.getByTestId('ai-image-slot')).toHaveCount(0);
+  }
+  // Um pedido NOVO pela janela rápida continua a abrir a proposta no painel.
+  await img.click();
+  await page.getByTestId('ct-ai').click();
+  await page.getByTestId('ai-quick-input').fill('troca a imagem por um retrato de estúdio');
+  await page.getByTestId('ai-quick-apply').click();
+  await expect(confirm).toBeVisible();
+  // E «Mais opções» leva o texto uma vez, sem o repor ao reabrir.
+  await confirm.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  await page.getByTestId('ai-discard').click();
+  await img.click();
+  await page.getByTestId('ct-ai').click();
+  await page.getByTestId('ai-quick-input').fill('texto: Olá');
+  await page.getByTestId('ai-quick-more').click();
+  await expect(page.getByTestId('ai-instruction')).toHaveValue('texto: Olá');
+  await page.getByTestId('ai-instruction').fill('');
+  await page.getByTestId('tool-layers').click();
+  await page.getByTestId('tool-ai').click();
+  await expect(page.getByTestId('ai-instruction')).toHaveValue('');
+});
