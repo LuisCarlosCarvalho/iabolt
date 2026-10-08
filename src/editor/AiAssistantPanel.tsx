@@ -252,6 +252,7 @@ export function AiAssistantPanel({
   }, []);
 
   const selected = editor.getSelected();
+  const imageSelected = scopeKind === 'element' && selected !== undefined && capabilitiesOf(editor, selected).image;
   const busy = phase.kind === 'waiting';
   const editingText = isEditingText(editor);
   const scope = resolveScope(editor, scopeKind, selected, explicit && explicit.kind === scopeKind ? explicit.id : undefined);
@@ -332,7 +333,10 @@ export function AiAssistantPanel({
       const ops = responses.flatMap((r) => r.proposal.operations);
       const summary = responses.map((r) => r.proposal.summary).filter(Boolean).join(' ');
       setChoices(new Map());
-      setPhase({ kind: 'proposal', proposal: { requests, responses, ops, summary, scope, device, version } });
+      // Com uma imagem a gerar (e gerador disponível), a confirmação «Gerar imagem?» abre logo, como
+      // na janela rápida: o utilizador confirma (custo mostrado) ou cancela e escolhe outra.
+      const autoGenerate = images !== null && imageSlots(ops).some((x) => x.source.kind === 'generate');
+      setPhase({ kind: 'proposal', proposal: { requests, responses, ops, summary, scope, device, version, autoGenerate } });
     } catch (e) {
       if (!alive.current) return;
       if (ctrl.signal.aborted) setPhase({ kind: 'idle', note: 'Pedido cancelado. Nada foi alterado.' });
@@ -409,9 +413,21 @@ export function AiAssistantPanel({
   return (
     <div className="panel-scroll ai-panel" data-testid="ai-panel">
       <div className="panel-title">Assistente IA</div>
-      <p className={`ai-engine ${proposer.simulated ? 'is-simulated' : ''}`} data-testid="ai-engine">
-        <Sparkles aria-hidden="true" /> {proposer.label}
-      </p>
+      <div className="ai-engines">
+        <p className={`ai-engine ${proposer.simulated ? 'is-simulated' : ''}`} data-testid="ai-engine" title="Escreve a proposta (textos, estilos, estrutura e a descrição das imagens)">
+          <Sparkles aria-hidden="true" /> {proposer.label}
+        </p>
+        {images && (
+          <p className={`ai-engine ai-engine-image ${imageSelected ? 'is-focus' : ''} ${images.simulated ? 'is-simulated' : ''}`} data-testid="ai-engine-image" title="Gera as imagens novas">
+            <ImagePlus aria-hidden="true" /> {images.label}
+          </p>
+        )}
+      </div>
+      {images && imageSelected && (
+        <p className="hint ai-hint" data-testid="ai-image-agent-note">
+          Imagem selecionada: o pedido é escrito por {proposer.label} e a imagem nova é gerada por {images.label}, no formato do espaço onde fica. Antes de gerar, pede confirmação.
+        </p>
+      )}
       {proposer.simulated && (
         <p className="hint ai-hint" data-testid="ai-simulated-note">
           Modo local: as propostas vêm de um simulador que entende comandos simples («texto: …», «cor #b91c1c», «imagem: escolher», «fundo-imagem: gerar …», «inserir título: …», «títulos: cor …»). Não é IA; as imagens «geradas» são imagens de teste identificadas como simuladas.

@@ -808,3 +808,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ui-primary); }
 
 /* Resultado de guardar/testar uma chave, dentro do cartão do fornecedor */
 .ai-key-note { margin-top: 10px; font-size: 13px; overflow-wrap: anywhere; }
+
+/* Assistente: agentes de edição e de imagens */
+.ai-engines { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-engine-image.is-focus { border-color: var(--ui-primary); box-shadow: 0 0 0 2px var(--ui-primary-soft); }

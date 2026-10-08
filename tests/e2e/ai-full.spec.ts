@@ -76,7 +76,8 @@ test('[simulado] imagem e fundo substituídos em separado: gerar (com custo most
   await expect(page.getByTestId('ai-image-missing')).toBeVisible();
   await expect(page.getByTestId('ai-apply')).toBeDisabled();
   await expect(page.getByTestId('ai-generate-prompt')).toHaveValue('um parque infantil ao sol');
-  await page.getByTestId('ai-generate').click();
+  // Proposta com imagem a gerar: a confirmação «Gerar imagem?» abre sozinha (como na janela rápida).
+  await expect(page.getByRole('dialog', { name: 'Gerar imagem?' })).toBeVisible();
   await expect(page.getByTestId('ai-generate-cost')).toContainText('SIMULADA');
   await page.getByTestId('ai-generate-confirm').click();
   await expect(page.getByTestId('ai-image-chosen')).toContainText('SIMULADA');
@@ -314,7 +315,8 @@ test('[simulado] secção nova com título, texto, botão e imagem pedidos: exat
   await expect(page.getByTestId('ai-changes')).toContainText('botão «Marcar reunião» → /contactos');
   await expect(page.getByTestId('ai-image-slot')).toContainText('Imagem da secção nova');
   await expect(page.getByTestId('ai-apply')).toBeDisabled();
-  await page.getByTestId('ai-generate').click();
+  // Proposta com imagem a gerar: a confirmação «Gerar imagem?» abre sozinha (como na janela rápida).
+  await expect(page.getByRole('dialog', { name: 'Gerar imagem?' })).toBeVisible();
   await page.getByTestId('ai-generate-confirm').click();
   await expect(page.getByTestId('ai-image-chosen')).toContainText('SIMULADA');
   // Ainda nada no documento.
@@ -418,10 +420,31 @@ test('[simulado] imagem gerada no formato do ESPAÇO onde fica (medido no canvas
   // O formato por omissão é o do espaço, assinalado na lista.
   await expect(page.getByTestId('ai-generate-aspect')).toHaveValue(expected);
   await expect(page.getByTestId('ai-generate-aspect').locator('option:checked')).toContainText('(espaço)');
-  await page.getByTestId('ai-generate').click();
+  // Proposta com imagem a gerar: a confirmação «Gerar imagem?» abre sozinha (como na janela rápida).
+  await expect(page.getByRole('dialog', { name: 'Gerar imagem?' })).toBeVisible();
   await page.getByTestId('ai-generate-confirm').click();
   // A imagem escolhida tem a proporção do espaço.
   const thumb = page.getByTestId('ai-image-chosen').locator('img');
   await expect(thumb).toBeVisible();
   await expect.poll(() => thumb.evaluate((el) => (el instanceof HTMLImageElement ? el.naturalWidth / el.naturalHeight : 0))).toBeCloseTo(ratios[expected] ?? 1, 1);
+});
+
+test('[simulado] caso de 08/10: imagem selecionada + pedido pela caixa do painel → agente de imagens em destaque e confirmação «Gerar imagem?» logo aberta', async ({ page }) => {
+  await createNimbus(page, `IA painel imagem ${Date.now()}`);
+  await openAi(page);
+  // Sem imagem selecionada: os dois agentes aparecem, sem destaque.
+  await expect(page.getByTestId('ai-engine')).toBeVisible();
+  await expect(page.getByTestId('ai-engine-image')).toBeVisible();
+  await expect(page.getByTestId('ai-engine-image')).not.toHaveClass(/is-focus/);
+  // Seleciona a imagem no canvas e pede pela caixa do painel (não pela janela rápida).
+  await frame(page).locator('img').first().click();
+  await expect(page.getByTestId('ai-scope-name')).toContainText('Elemento · Imagem');
+  await expect(page.getByTestId('ai-engine-image')).toHaveClass(/is-focus/);
+  await expect(page.getByTestId('ai-image-agent-note')).toContainText('a imagem nova é gerada por');
+  await ask(page, 'troca a imagem por um retrato de estúdio');
+  const confirm = page.getByRole('dialog', { name: 'Gerar imagem?' });
+  await expect(confirm).toBeVisible();
+  await page.getByTestId('ai-generate-confirm').click();
+  await expect(page.getByTestId('ai-image-chosen')).toBeVisible();
+  await expect(page.getByTestId('ai-apply')).toBeEnabled();
 });
